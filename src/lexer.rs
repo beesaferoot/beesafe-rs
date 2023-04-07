@@ -5,7 +5,7 @@ Lexer module: contains code for tokenization phase.
 */
 
 
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 
 pub struct Lexer {
@@ -15,10 +15,10 @@ pub struct Lexer {
     line_no: i32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Token {
-    lexeme: String,
-    ttype: TType,
+    pub lexeme: String,
+    pub ttype: TType,
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -35,6 +35,7 @@ pub enum TType {
     GtEq,
     Assign,
     Plus, 
+    UMinus,
     Minus,
     Asterisk,
     Div,
@@ -59,6 +60,7 @@ pub enum TType {
     Literal,
     Bang,
 }
+
 impl Token {
 
     pub fn from(lexeme: &str, ttype: TType) -> Self {
@@ -81,6 +83,10 @@ impl Lexer {
         }
     }
 
+    pub fn lineno(&self) -> i32 {
+        self.line_no
+    }
+
     pub fn parse_tokens(&mut self) -> Vec<Token> {
         let mut tokens: Vec<Token> = vec![];
         let mut current_token: Token = self.next_token();
@@ -93,7 +99,7 @@ impl Lexer {
     }
 
     // return next available token
-    fn next_token(&mut self) -> Token {
+    pub fn next_token(&mut self) -> Token {
         let ch = self.read_char_no_withspace();
         match ch {
             '\0' => Token {lexeme: ch.to_string(), ttype: TType::Eob },
