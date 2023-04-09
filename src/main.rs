@@ -17,9 +17,11 @@ fn main() {
     //     a = 0
     // "#;
     let input_string = r#"
-        0
-        2
-        4
+        1 + 2 - 4 
+        7 * 4 
+        9 - 0 
+        8 * 9 + 5 
+        3 + 4
     "#;
     let source_input = String::from(input_string);
     let mut lexer = lexer::Lexer::new(source_input);
@@ -27,5 +29,11 @@ fn main() {
     // println!("{:?}", tokens);
     let mut parser = Parser::new(&mut lexer);
     let program = parser.parse_program();
-    program.visit();
+    if parser.has_errors() {
+        parser.show_errors();
+        return;
+    }
+    for node in &program.statements {
+        println!("{:?}", node.visit().visit().downcast::<i32>().unwrap_or(Box::new(-1)));
+    }
 }
