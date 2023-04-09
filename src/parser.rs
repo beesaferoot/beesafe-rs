@@ -16,6 +16,7 @@ pub struct Parser<'a> {
     peek_token: Option<Token>,
     operator_stack: Vec<Token>,
     operand_stack: Vec<Box<dyn Node>>,
+    errors: Vec<Box<dyn Node>>,
 }
 
 #[derive(Clone)]
@@ -35,6 +36,17 @@ impl<'a> Parser<'a> {
             peek_token: None,
             operator_stack: vec![],
             operand_stack: vec![],
+            errors: vec![],
+        }
+    }
+
+    pub fn has_errors(&self) -> bool {
+        self.errors.is_empty() == false
+    }
+
+    pub fn show_errors(&self) {
+        for err in &self.errors {
+            println!("{}", err.visit().visit().downcast::<String>().unwrap());
         }
     }
 
@@ -81,14 +93,16 @@ impl<'a> Parser<'a> {
             let op_token = Token { lexeme: lexeme, ttype: ttype.clone()};
             self.push_operator(op_token);
             self.consume_next_token();
+            self.consume_next_token();
             self.produce();
             ttype = self.peek_token.as_ref().unwrap().ttype;
             look_ahead = self.peek_token.as_ref().unwrap();
         }
-        let op = self.operator_stack.last().unwrap();
-        if op.ttype != TType::Error && op.ttype != TType::Null {
+        let mut op = self.operator_stack.last().unwrap();
+        while op.ttype != TType::Error && op.ttype != TType::Null {
             let is_binary = self.resolve_binary_op(op.ttype);
             self.pop_operator(is_binary);
+            op = self.operator_stack.last().unwrap();
         }
         self.operator_stack.pop();
     }
@@ -171,7 +185,7 @@ impl<'a> Parser<'a> {
 
         let precedence = self.resolve_precedence(&op.ttype);
         let mut last_op = self.operator_stack.last().unwrap();
-        while precedence > self.resolve_precedence(&last_op.ttype) {
+        while self.resolve_precedence(&last_op.ttype) >= precedence {
             self.pop_operator( self.resolve_binary_op(op.ttype));
             last_op = self.operator_stack.last().unwrap();
         }
@@ -305,19 +319,32 @@ impl<'a> Parser<'a> {
         value: false});
     }
 
-    pub fn parse_program(& mut self) -> Box<dyn Node> {
+    pub fn parse_program(& mut self) -> Program {
         let mut program = Program{statements: vec![]};
         self.consume_next_token();
         let mut current_token = self.current_token.as_ref().unwrap();
         let mut ttype = current_token.ttype;
         while ttype != TType::Eob {
-            let node = self.parse_expression();
-            program.statements.push(node);
+
+            if ttype == TType::Newline{
+                self.consume_next_token();
+                current_token = self.current_token.as_ref().unwrap();
+                ttype = current_token.ttype;
+                continue;
+            }
+            let node = match ttype {
+                _ => self.parse_expression()
+            };
+            if node.ttype() == NodeType::Err {
+                self.errors.push(node);
+            }else {
+                program.statements.push(node);
+            }
             self.consume_next_token();
             current_token = self.current_token.as_ref().unwrap();
             ttype = current_token.ttype;
         }
-        Box::new(program)
+        program
     }
     
 
