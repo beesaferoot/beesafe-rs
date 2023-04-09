@@ -186,7 +186,6 @@ impl Node for Null {
 impl Node for Number  {
     
     fn visit(&self) -> Box<dyn Object> {
-        println!("{}", self.value);
         Box::new(NumberObj{value: self.value})
     }
 
@@ -253,7 +252,7 @@ impl Node for BinaryOp {
                     let lvalue = left_node.visit().downcast::<i32>().unwrap();
                     match self.ttype() {
                         NodeType::Add => Box::new(NumberObj{value: *rvalue + *lvalue}),
-                        NodeType::Sub => Box::new(NumberObj{value: *rvalue - *lvalue}),
+                        NodeType::Sub => Box::new(NumberObj{value: *lvalue - *rvalue}),
                         NodeType::Mul => Box::new(NumberObj{value: *rvalue * *lvalue}),
                         NodeType::Eq => Box::new(BoolObj{value: rvalue == lvalue}),
                         _ => Box::new(ErrorObj{parse_error: None, 

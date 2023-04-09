@@ -186,7 +186,7 @@ impl Lexer {
 
     fn read_char_no_withspace(&mut self) -> char {
         let mut ch = self.read_char();
-        while ch.is_whitespace() {
+        while ch.is_whitespace() && ch != '\n' {
             ch = self.read_char();
         }
         ch
