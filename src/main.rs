@@ -17,11 +17,11 @@ fn main() {
     //     a = 0
     // "#;
     let input_string = r#"
-        1 + 2 - 4 
+        1 + 2 - 5
         7 * 4 
         9 - 0 
         8 * 9 + 5 
-        3 + 4
+        93 + 4
     "#;
     let source_input = String::from(input_string);
     let mut lexer = lexer::Lexer::new(source_input);

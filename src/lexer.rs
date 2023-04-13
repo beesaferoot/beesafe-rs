@@ -286,11 +286,3 @@ impl Lexer {
         keywords
     }
 }
-
-/*
-
-    1 +  2
-      ^ 
-    true
-    ^^^^ 
- */
