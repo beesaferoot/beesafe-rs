@@ -40,6 +40,10 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn source(&self) -> &String {
+        self.lexer.source()
+    }
+
     pub fn has_errors(&self) -> bool {
         self.errors.is_empty() == false
     }
@@ -83,14 +87,13 @@ impl<'a> Parser<'a> {
 
     // expr -> produce
     fn expression(& mut self) {
-        let null_token = Token{lexeme: "".to_string(), ttype: TType::Null};
+        let null_token = Token{lexeme: "".to_string(), ttype: TType::Null, offset: -1};
         self.operator_stack.push(null_token);
         self.produce();
         let mut look_ahead = self.peek_token.as_ref().unwrap();
         let mut ttype =  look_ahead.ttype;
         while self.resolve_binary_op(ttype) {
-            let lexeme = look_ahead.lexeme.clone();
-            let op_token = Token { lexeme: lexeme, ttype: ttype.clone()};
+            let op_token = look_ahead.clone();
             self.push_operator(op_token);
             self.consume_next_token();
             self.consume_next_token();
@@ -134,7 +137,7 @@ impl<'a> Parser<'a> {
             },
             _ => {
                 if !self.resolve_binary_op(ttype) {
-                    let token = Token { lexeme: curr_token.lexeme.clone(), ttype: curr_token.ttype.clone()};
+                    let token = curr_token.clone();
                     self.push_operator(token);
                     self.consume_next_token();
                     self.produce();
@@ -198,7 +201,7 @@ impl<'a> Parser<'a> {
             let left = self.operand_stack.pop().unwrap();
             let  op = self.operator_stack.pop().unwrap();
             let node = self.parse_binary_op(
-                Token { lexeme: op.lexeme.clone(), ttype: op.ttype.clone() }
+                op.clone()
                 , 
                 left, 
                 right
@@ -208,7 +211,7 @@ impl<'a> Parser<'a> {
             let operand_node = self.operand_stack.pop().unwrap();
             let  op = self.operator_stack.pop().unwrap();
             let node = self.parse_uniary_op(
-                Token { lexeme: op.lexeme.clone(), ttype: op.ttype.clone() },
+                op.clone(),
                 operand_node
             );
             self.operand_stack.push(node);
@@ -220,6 +223,7 @@ impl<'a> Parser<'a> {
         let  current_token = self.current_token.as_ref().unwrap();
         let lexeme = current_token.lexeme.to_string();
         let ttype =  current_token.ttype;
+        let offset = current_token.offset;
         match op_type {
             TType::Num => 
                 Box::new(Number{
@@ -234,14 +238,14 @@ impl<'a> Parser<'a> {
             }),
             TType::Id => {
             self.consume_next_token();
-            Box::new(Ident{token: Rc::new(Token{lexeme: lexeme.clone(), ttype: ttype.clone() }),
+            Box::new(Ident{token: Rc::new(Token{lexeme: lexeme.clone(), ttype: ttype.clone(), offset: offset}),
             lineno: self.lexer.lineno(),
             value: lexeme.parse().unwrap()
             })
         },
             _ => Box::new(Error{
                 error_type: ParseError::UndeterminedType(
-                    format!("couldn't parse the terminal type {}", lexeme))     
+                    format!("couldn't parse the terminal type\n {}", current_token.error_fmt(&self.source())))     
             })
         }
     }
@@ -255,13 +259,13 @@ impl<'a> Parser<'a> {
                 Box::new(
                 UniaryOp{
                     lineno: self.lexer.lineno(),
-                    token: Rc::new(Token { lexeme: op_token.lexeme.clone(), ttype: op_token.ttype.clone() }),
+                    token: Rc::new(op_token),
                     right: right_operand,
                 })
             },
             _ => Box::new(Error{
                 error_type: ParseError::UndeterminedType(
-                    format!("couldn't parse uniary operator type {}", op_token.lexeme))     
+                    format!("couldn't parse uniary operator type \n {}", op_token.error_fmt(&self.source())))     
             })
         }
     }
@@ -302,7 +306,7 @@ impl<'a> Parser<'a> {
         },
             _ => Box::new(Error{
                 error_type: ParseError::UndeterminedType(
-                    format!("couldn't parse binary operator type {}", op_token.lexeme))     
+                    format!("couldn't parse binary operator type \n {}", op_token.error_fmt(&self.source())))     
             })
         }
     }
