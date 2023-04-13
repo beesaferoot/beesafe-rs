@@ -20,3 +20,15 @@ fn test_expression(){
     }
     assert_eq!(parser.has_errors(), false);
 }
+
+#[test]
+fn test_error(){
+    let input_string = String::from(r#"
+    3 / 4
+    "#);
+    let mut lexer = lexer::Lexer::new(input_string);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert_eq!(program.statements.len(), 0);
+    assert_eq!(parser.has_errors(), true);
+}
