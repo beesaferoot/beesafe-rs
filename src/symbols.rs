@@ -9,7 +9,6 @@ pub trait Object {
 
     fn visit(&self) -> Box<dyn Any>; 
     fn ttype(&self) -> Type;
-    // fn value(&self) -> ;
 }
 
 #[derive(PartialEq, Debug)]
