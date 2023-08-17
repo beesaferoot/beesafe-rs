@@ -33,7 +33,8 @@ fn main() {
         parser.show_errors();
         return;
     }
-    for node in &program.statements {
-        println!("{:?}", node.visit().visit().downcast::<i32>().unwrap_or(Box::new(-1)));
-    }
+    // for node in &program.statements {
+    //     println!("{:?}", node);
+    //     println!("")
+    // }
 }

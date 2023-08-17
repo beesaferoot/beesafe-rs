@@ -5,13 +5,24 @@
 use std::rc::Rc;
 
 use crate::lexer::{Token, TType};
-use crate::symbols::*;
 use crate::parser::ParseError;
 
-pub trait Node {
-
-    fn visit(&self) -> Box<dyn Object>; 
-    fn ttype(&self) -> NodeType;
+#[derive(Debug)]
+pub enum Node {
+    Block(Block),
+    Return(Return),
+    Program(Program),
+    Null(Null),
+    Ident(Ident),
+    While(While),
+    If(If),
+    Boolean(Boolean),
+    StringLiteral(StringLiteral),
+    Number(Number),
+    Init(Init),
+    Error(Error),
+    UniaryOp(UniaryOp), 
+    BinaryOp(BinaryOp)
 }
 
 #[derive(Debug, PartialEq)]
@@ -77,202 +88,158 @@ enum Association {
     Right = 1,
 }
 
-pub struct Block<'a> {
-    // pub ttype: NodeType,
+#[derive(Debug)]
+pub struct Block {
     pub lineno: i32,
     pub token: Token,
-    pub statements: Vec<&'a dyn Node>,
+    pub statements: Box<Node>,
 }
 
-pub struct Return<'a> {
-    // pub ttype: NodeType,
+#[derive(Debug)]
+pub struct Return {
     pub lineno: i32,
     pub token: Token,
-    pub value: &'a dyn Node,
+    pub value: Box<Node>,
 }
 
+#[derive(Debug)]
 pub struct Program {
-    pub statements: Vec<Box<dyn Node>>,
+    pub statements: Vec<Node>,
 }
 
+#[derive(Debug)]
 pub struct Null {
     pub lineno: i32,
     pub token: Token,
 }
 
+#[derive(Debug)]
 pub struct Ident {
     pub lineno: i32,
     pub token: Rc<Token>,
     pub value: String
 }
 
+#[derive(Debug)]
 pub struct StringLiteral {
     pub lineno: i32,
     pub token: Rc<Token>,
     pub literal: String,
 }
 
+#[derive(Debug)]
 pub struct Number {
     pub lineno: i32,
     pub token: Rc<Token>,
     pub value: i32,
 }
 
+#[derive(Debug)]
 pub struct BinaryOp {
     pub lineno: i32,
     pub token: Rc<Token>,
-    pub right: Box<dyn Node>,
-    pub left: Box<dyn Node>, 
+    pub right: Box<Node>,
+    pub left: Box<Node>, 
 }
 
+#[derive(Debug)]
 pub struct UniaryOp {
     pub lineno: i32,
     pub token: Rc<Token>,
-    pub right: Box<dyn Node>,
+    pub right: Box<Node>,
 }
 
+#[derive(Debug)]
 pub struct Init {
     pub lineno: i32,
     pub token: Token,
-    pub ident: Box<dyn Node>,
-    pub value: Box<dyn Node>,
+    pub ident: Box<Node>,
+    pub value: Box<Node>,
 }
 
-pub struct Declare<'a> {
+#[derive(Debug)]
+pub struct Declare {
     pub lineno: i32,
     pub token: Token,
-    pub idents: Vec<&'a dyn Node>,
+    pub idents: Vec<Node>,
 }
 
-pub struct While<'a> {
-    // pub ttype: NodeType,
+#[derive(Debug)]
+pub struct While {
     pub lineno: i32,
     pub token: Token,
-    pub predicate: &'a dyn Node,
-    pub block: &'a dyn Node, 
+    pub predicate: Box<Node>,
+    pub block: Box<Node>, 
 }
 
-pub struct If<'a> {
-    // pub ttype: NodeType,
+#[derive(Debug)]
+pub struct If {
     pub lineno: i32,
     pub token: Token,
-    pub predicate: &'a dyn Node,
-    pub alt: &'a dyn Node, 
-    pub block: &'a dyn Node,
+    pub predicate: Box<Node>,
+    pub alt: Box<Node>, 
+    pub block: Box<Node>,
 }
 
+#[derive(Debug)]
 pub struct Boolean {
     pub lineno: i32,
     pub token: Token,
     pub value: bool,
 }
 
+#[derive(Debug)]
 pub struct Error {
     pub error_type: ParseError
 }
 
-impl Node for Null {
-    
-    fn visit(&self) -> Box<dyn Object> {
-        //TODO: implement visit method 
-        Box::new(NullObj{})
-    }
-
-    fn ttype(&self) -> NodeType{
+impl Null {
+    pub fn ttype(&self) -> NodeType{
         NodeType::Null
     }
 }
 
-impl Node for Number  {
-    
-    fn visit(&self) -> Box<dyn Object> {
-        Box::new(NumberObj{value: self.value})
-    }
-
-    fn ttype(&self) -> NodeType {
+impl Number  {
+    pub fn ttype(&self) -> NodeType {
         NodeType::Number
     }
 }
 
-impl Node for Error {
-
-    fn visit(&self) -> Box<dyn Object> {
-        Box::new(ErrorObj{parse_error: Some(self.error_type.clone()), type_error: None})
+impl Error {
+    pub fn display(&self) -> String {
+        match &self.error_type {
+            ParseError::MissingIdent(msg) => msg.clone(),
+            ParseError::UndeterminedType(msg) => msg.clone(),
+            ParseError::PlaceHolder(msg) => msg.clone(),
+        }
     }
 
-    fn ttype(&self) -> NodeType {
-        NodeType::Err
-    }
 }
 
-impl Node for StringLiteral {
-    fn visit(&self) -> Box<dyn Object> {
-        Box::new(StringObj{literal: self.literal.clone()})
-    }
+impl StringLiteral {
 
-    fn ttype(&self) -> NodeType {
+    pub fn ttype(&self) -> NodeType {
         NodeType::StringLiteral
     }
 }
 
-impl Node for Ident {
-    fn visit(&self) -> Box<dyn Object> {
-        todo!()
-    }
+impl Ident {
 
-    fn ttype(&self) -> NodeType {
+    pub fn ttype(&self) -> NodeType {
         NodeType::Identifier
     }
 }
 
-impl Node for Boolean {
-    fn visit(&self) -> Box<dyn Object> {
-        todo!()
-    }
+impl Boolean {
 
-    
-
-    fn ttype(&self) -> NodeType {
+    pub fn ttype(&self) -> NodeType {
         NodeType::Boolean
     }
+
 }
-
-impl Node for BinaryOp {
-    fn visit(&self) -> Box<dyn Object> {
-        let result_node : Box<dyn Object>;
-        let right_node = self.right.visit();
-        let left_node = self.left.visit();
-
-        let rttype = right_node.ttype();
-        let lttype = left_node.ttype();
-        if rttype == lttype  {
-            result_node = match rttype {
-                Type::Number => {
-                    let rvalue = right_node.visit().downcast::<i32>().unwrap();
-                    let lvalue = left_node.visit().downcast::<i32>().unwrap();
-                    match self.ttype() {
-                        NodeType::Add => Box::new(NumberObj{value: *rvalue + *lvalue}),
-                        NodeType::Sub => Box::new(NumberObj{value: *lvalue - *rvalue}),
-                        NodeType::Mul => Box::new(NumberObj{value: *rvalue * *lvalue}),
-                        NodeType::Eq => Box::new(BoolObj{value: rvalue == lvalue}),
-                        _ => Box::new(ErrorObj{parse_error: None, 
-                            type_error: Some(TypeError::PlaceHolder(format!("invalid operation on type {:?}", rttype)))
-                        })
-                    }
-                },
-                _ => Box::new(ErrorObj{parse_error: None, 
-                    type_error: Some(TypeError::PlaceHolder(format!("invalid operation on type {:?}", rttype)))
-                })
-            };
-        }else {
-            result_node =  Box::new(ErrorObj{parse_error: None, 
-                type_error: Some(TypeError::TypeMismatch(format!("type mismatch {:?} and {:?}", rttype, lttype)))
-            })
-        }
-        result_node
-    }
-
-    fn ttype(&self) -> NodeType {
+ 
+impl BinaryOp {
+    pub fn ttype(&self) -> NodeType {
         match self.token.ttype {
             TType::Plus => NodeType::Add,
             TType::Minus => NodeType::Sub, 
@@ -284,30 +251,22 @@ impl Node for BinaryOp {
             _ => NodeType::Undefined
         }
     }
+
 }
 
-impl Node for UniaryOp {
-    fn visit(&self) -> Box<dyn Object> {
-        todo!()
-    }
-
-    fn ttype(&self) -> NodeType {
+impl  UniaryOp {
+    pub fn ttype(&self) -> NodeType {
         match self.token.ttype {
             TType::UMinus => NodeType::Sub,
             _ => NodeType::Undefined
         }
     }
+
 }
 
-impl Node for Program {
-    fn visit(&self) -> Box<dyn Object> {
-       for node in &self.statements {
-            node.visit();
-       }
-       Box::new(NullObj{})
-    }
-
-    fn ttype(&self) -> NodeType {
+impl Program {
+    pub fn ttype(&self) -> NodeType {
         NodeType::Program
     }
+
 }

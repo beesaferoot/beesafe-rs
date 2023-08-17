@@ -1,14 +1,17 @@
-use std::any::Any;
+use std::rc::Rc;
 
 /*
     Symbol objects for beesafe 
 */
 use crate::parser::ParseError;
+use crate::environment::Environment;
 
-pub trait Object {
-
-    fn visit(&self) -> Box<dyn Any>; 
-    fn ttype(&self) -> Type;
+pub enum Object {
+    NullObj(NullObj),
+    BoolObj(BoolObj),
+    ErrorObj(ErrorObj),
+    NumberObj(NumberObj),
+    StringObj(StringObj)
 }
 
 #[derive(PartialEq, Debug)]
@@ -50,20 +53,10 @@ pub struct BoolObj {
     pub value: bool
 }
 
-impl Object for NullObj {
-    fn visit(&self) -> Box<dyn Any> {
-        //TODO: implement visit method 
-        Box::new(String::from(""))
-    }
 
-    fn ttype(&self) -> Type {
-        Type::Null
-    }
-}
+impl ErrorObj {
 
-impl Object for ErrorObj {
-
-    fn visit(&self) -> Box<dyn Any> {
+    pub fn visit<'e>(&self) -> String {
         let mut err_str = match self.parse_error.clone() {
             Some(err) => match err {
                 ParseError::MissingIdent(err_msg) => err_msg,
@@ -75,13 +68,13 @@ impl Object for ErrorObj {
         if err_str.is_empty() {
             err_str = match self.type_error.clone() {
                 Some(err) => match err {
-                    TypeError::TypeMismatch(err_msg) => err_msg,
-                    TypeError::PlaceHolder(err_msg) => err_msg
+                    TypeError::TypeMismatch(err_msg) => err_msg.to_owned(),
+                    TypeError::PlaceHolder(err_msg) => err_msg.to_owned()
                 },
                 None => String::from("")
             }
         }
-        return Box::new(err_str);
+        return err_str
 
     }
 
@@ -90,10 +83,10 @@ impl Object for ErrorObj {
     }
 }
 
-impl Object for NumberObj {
+impl NumberObj {
     
-    fn visit(&self) -> Box<dyn Any> {
-        Box::new(self.value)
+    pub fn visit<'e>(&self, env: &'e Rc<Environment>) -> i32 {
+        self.value
     }
 
     fn ttype(&self) -> Type {
@@ -101,9 +94,9 @@ impl Object for NumberObj {
     }
 }
 
-impl Object for StringObj {
-    fn visit(&self) -> Box<dyn Any> {
-        Box::new(self.literal.to_string())
+impl StringObj {
+    pub fn visit<'e>(&self, env: &'e Rc<Environment>) -> String {
+        self.literal.clone()
     }
 
     fn ttype(&self) -> Type {
@@ -111,14 +104,12 @@ impl Object for StringObj {
     }
 }
 
-impl Object for BoolObj {
-    fn visit(&self) -> Box<dyn Any> {
-        Box::new(self.value.to_string())
+impl BoolObj {
+    pub fn visit<'e>(&self, env: &'e Rc<Environment>) -> bool {
+        self.value
     }
 
-    fn ttype(&self) -> Type {
+    pub fn ttype(&self) -> Type {
         Type::Bool
     }
 }
-
-

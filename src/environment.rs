@@ -1,11 +1,10 @@
-use std::rc::Rc;
 use std::collections::HashMap;
 use crate::symbols::Object;
 
 pub struct Environment<'a> {
-    prev: Option<&'a Rc<Environment<'a>>>,
+    prev: Option<&'a Box<Environment<'a>>>,
     depth: i32,
-    table: HashMap<String, Box<dyn Object>>,
+    table: HashMap<String, Box<Object>>,
     recursion_limit: i32
 }
 
@@ -20,7 +19,7 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn new_with_prev(prev: &'a Rc<Environment>) -> Self {
+    pub fn new_with_prev(prev: &'a Box<Environment>) -> Self {
         Self { 
             prev: Some(prev), 
             depth: prev.depth + 1, 
@@ -29,13 +28,13 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn add(&mut self, identifier: &String, value: Box<dyn Object>) {
+    pub fn add(&mut self, identifier: &String, value: Box<Object>) {
         self.table.insert(identifier.to_string(), value);
     }
 
-    pub fn get(&self, identifier: &String) -> Option<&Box<dyn Object>> {
+    pub fn get(&self, identifier: &String) -> Option<&Box<Object>> {
         let mut current_env = self.prev();
-        let mut ident_value: Option<&Box<dyn Object>> = None;
+        let mut ident_value: Option<&Box<Object>> = None;
         if self.table.contains_key(identifier) {
             return self.table.get(identifier);
         }
@@ -51,7 +50,7 @@ impl<'a> Environment<'a> {
         
     }
 
-    pub fn prev(&self) -> Option<&Rc<Environment>> {
+    pub fn prev(&self) -> Option<&Box<Environment>> {
         self.prev
     }
 

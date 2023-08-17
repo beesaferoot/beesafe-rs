@@ -15,11 +15,11 @@ pub struct Parser<'a> {
     current_token: Option<Token>,
     peek_token: Option<Token>,
     operator_stack: Vec<Token>,
-    operand_stack: Vec<Box<dyn Node>>,
-    errors: Vec<Box<dyn Node>>,
+    operand_stack: Vec<Node>,
+    errors: Vec<Error>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ParseError {
     MissingIdent(String),
     UndeterminedType(String),
@@ -50,7 +50,7 @@ impl<'a> Parser<'a> {
 
     pub fn show_errors(&self) {
         for err in &self.errors {
-            println!("{}", err.visit().visit().downcast::<String>().unwrap());
+            println!("{}", err.display());
         }
     }
 
@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
     }
 
     // parse expression using the shunting yard technique (https://en.wikipedia.org/wiki/Shunting_yard_algorithm) 
-    fn parse_expression(& mut self) -> Box<dyn Node> {
+    fn parse_expression(& mut self) -> Node {
         /*
         
         (expr) -> (produce) 
@@ -81,7 +81,7 @@ impl<'a> Parser<'a> {
 
         */
         self.expression();
-        let node = self.operand_stack.pop().unwrap_or(Box::new(Error{error_type: ParseError::PlaceHolder(format!(""))}));
+        let node = self.operand_stack.pop().unwrap_or(Node::Error(Error{error_type: ParseError::PlaceHolder(format!(""))}));
         node
     }
 
@@ -212,38 +212,38 @@ impl<'a> Parser<'a> {
             let  op = self.operator_stack.pop().unwrap();
             let node = self.parse_uniary_op(
                 op.clone(),
-                operand_node
+                Box::new(operand_node)
             );
             self.operand_stack.push(node);
         }
 
     }
 
-    fn create_node(&mut self, op_type: &TType) -> Box<dyn Node> {
+    fn create_node(&mut self, op_type: &TType) -> Node {
         let  current_token = self.current_token.as_ref().unwrap();
         let lexeme = current_token.lexeme.to_string();
         let ttype =  current_token.ttype;
         let offset = current_token.offset;
         match op_type {
             TType::Num => 
-                Box::new(Number{
+                Node::Number(Number{
                 token: Rc::new(current_token.clone()), 
                 lineno: self.lexer.lineno(),
                 value: lexeme.parse().unwrap()
             }),
             TType::Literal => 
-                Box::new(StringLiteral{token: Rc::new(current_token.clone()),
+                Node::StringLiteral( StringLiteral{token: Rc::new(current_token.clone()),
                 lineno: self.lexer.lineno(),
                 literal: lexeme.parse().unwrap(),
             }),
             TType::Id => {
             self.consume_next_token();
-            Box::new(Ident{token: Rc::new(Token{lexeme: lexeme.clone(), ttype: ttype.clone(), offset: offset}),
+            Node::Ident(Ident{token: Rc::new(Token{lexeme: lexeme.clone(), ttype: ttype.clone(), offset: offset}),
             lineno: self.lexer.lineno(),
             value: lexeme.parse().unwrap()
             })
         },
-            _ => Box::new(Error{
+            _ => Node::Error(Error{
                 error_type: ParseError::UndeterminedType(
                     format!("couldn't parse the terminal type\n {}", current_token.error_fmt(&self.source())))     
             })
@@ -252,18 +252,18 @@ impl<'a> Parser<'a> {
 
     fn parse_uniary_op(&mut self, 
         op_token: Token, 
-        right_operand: Box<dyn Node>
-    ) -> Box<dyn Node> {
+        right_operand: Box<Node>
+    ) -> Node {
         match op_token.ttype {
             TType::UMinus => {
-                Box::new(
+                Node::UniaryOp(
                 UniaryOp{
                     lineno: self.lexer.lineno(),
                     token: Rc::new(op_token),
                     right: right_operand,
                 })
             },
-            _ => Box::new(Error{
+            _ => Node::Error(Error{
                 error_type: ParseError::UndeterminedType(
                     format!("couldn't parse uniary operator type \n {}", op_token.error_fmt(&self.source())))     
             })
@@ -272,53 +272,53 @@ impl<'a> Parser<'a> {
 
     fn parse_binary_op(&mut self, 
         op_token: Token, 
-        left_operand: Box<dyn Node> , 
-        right_operand: Box<dyn Node>
-    ) -> Box<dyn Node> {
+        left_operand: Node, 
+        right_operand: Node
+    ) -> Node {
         
         match op_token.ttype {
             TType::Plus => { 
-            Box::new(
+            Node::BinaryOp(
             BinaryOp{
                 lineno: self.lexer.lineno(),
                 token: Rc::new(op_token),
-                right: right_operand,
-                left: left_operand
+                right: Box::new(right_operand),
+                left: Box::new(left_operand)
             })
         },
         TType::Minus => {
-            Box::new(
+            Node::BinaryOp(
             BinaryOp{
                 lineno: self.lexer.lineno(),
                 token: Rc::new(op_token),
-                right: right_operand,
-                left: left_operand
+                right: Box::new(right_operand),
+                left: Box::new(left_operand)
             })
         },
         TType::Asterisk => {
-            Box::new(
+            Node::BinaryOp(
                 BinaryOp{
                     lineno: self.lexer.lineno(),
                     token: Rc::new(op_token),
-                    right: right_operand,
-                    left: left_operand
+                    right: Box::new(right_operand),
+                    left: Box::new(left_operand)
             })
         },
-            _ => Box::new(Error{
+            _ => Node::Error(Error{
                 error_type: ParseError::UndeterminedType(
                     format!("couldn't parse binary operator type \n {}", op_token.error_fmt(&self.source())))     
             })
         }
     }
 
-    fn parse_bool(&mut self) -> Box<dyn Node> {
+    fn parse_bool(&mut self) -> Node {
         let  current_token = self.current_token.as_ref().unwrap();
         if current_token.ttype == TType::True {
-            return Box::new(Boolean{lineno: self.lexer.lineno(),
+            return Node::Boolean(Boolean{lineno: self.lexer.lineno(),
             token: current_token.clone(),
         value: true});
         }
-        return Box::new(Boolean{lineno: self.lexer.lineno(),
+        return Node::Boolean(Boolean{lineno: self.lexer.lineno(),
             token: current_token.clone(),
         value: false});
     }
@@ -336,14 +336,16 @@ impl<'a> Parser<'a> {
                 ttype = current_token.ttype;
                 continue;
             }
+
             let node = match ttype {
                 _ => self.parse_expression()
             };
-            if node.ttype() == NodeType::Err {
-                self.errors.push(node);
-            }else {
-                program.statements.push(node);
+
+            match node {
+                Node::Error(err) => self.errors.push(err),
+                _ => program.statements.push(node)
             }
+            
             self.consume_next_token();
             current_token = self.current_token.as_ref().unwrap();
             ttype = current_token.ttype;

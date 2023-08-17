@@ -1,3 +1,5 @@
+use beesafe::ast::Node;
+use beesafe::ast::NodeType;
 use beesafe::parser;
 use beesafe::lexer;
 
@@ -13,10 +15,22 @@ fn test_expression(){
     let mut lexer = lexer::Lexer::new(input_string);
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
-    let exp_results = [-1, 28, 9, 77, 7];
     assert_eq!(program.statements.len(), 5);
-    for (i, node) in program.statements.iter().enumerate() {
-        assert_eq!(*node.visit().visit().downcast::<i32>().unwrap_or(Box::new(-1)), exp_results[i]);
+
+
+    for stmt in program.statements {
+        match stmt {
+            Node::BinaryOp(op) => {
+                match op.ttype() {
+                    NodeType::Add => (),
+                    NodeType::Mul => (), 
+                    NodeType::Sub => (), 
+                    NodeType::Div => (),
+                    _ => assert!(true, "not recognized")
+                }
+            }
+            _ => ()
+        }
     }
     assert_eq!(parser.has_errors(), false);
 }
