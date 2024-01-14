@@ -8,7 +8,7 @@ Executor
 
 GC
 [-] Attempt to implement a mark-sweep GC
-[-] Attemp to implement Ref-Count GC version
+[-] Attempt to implement a Ref-Count GC version
 
 VM
 [-] Attempt to implement a Byte-code VM 

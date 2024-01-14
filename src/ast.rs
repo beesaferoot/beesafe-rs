@@ -2,10 +2,12 @@
     Ast module: houses the Abstract Syntax Tree structure used during parse phase.
 */
 
-use std::rc::Rc;
+use std::fmt::Display;
 
 use crate::lexer::{Token, TType};
 use crate::parser::ParseError;
+use miette::Diagnostic;
+use thiserror::Error;
 
 #[derive(Debug)]
 pub enum Node {
@@ -92,7 +94,7 @@ enum Association {
 pub struct Block {
     pub lineno: i32,
     pub token: Token,
-    pub statements: Box<Node>,
+    pub statements: Vec<Box<Node>>,
 }
 
 #[derive(Debug)]
@@ -116,28 +118,28 @@ pub struct Null {
 #[derive(Debug)]
 pub struct Ident {
     pub lineno: i32,
-    pub token: Rc<Token>,
+    pub token: Token,
     pub value: String
 }
 
 #[derive(Debug)]
 pub struct StringLiteral {
     pub lineno: i32,
-    pub token: Rc<Token>,
+    pub token: Token,
     pub literal: String,
 }
 
 #[derive(Debug)]
 pub struct Number {
     pub lineno: i32,
-    pub token: Rc<Token>,
+    pub token: Token,
     pub value: i32,
 }
 
 #[derive(Debug)]
 pub struct BinaryOp {
     pub lineno: i32,
-    pub token: Rc<Token>,
+    pub token: Token,
     pub right: Box<Node>,
     pub left: Box<Node>, 
 }
@@ -145,7 +147,7 @@ pub struct BinaryOp {
 #[derive(Debug)]
 pub struct UniaryOp {
     pub lineno: i32,
-    pub token: Rc<Token>,
+    pub token: Token,
     pub right: Box<Node>,
 }
 
@@ -188,8 +190,10 @@ pub struct Boolean {
     pub value: bool,
 }
 
-#[derive(Debug)]
+#[derive(Error, Debug, Diagnostic)]
 pub struct Error {
+    #[source_code]
+    pub src: String,
     pub error_type: ParseError
 }
 
@@ -267,6 +271,13 @@ impl  UniaryOp {
 impl Program {
     pub fn ttype(&self) -> NodeType {
         NodeType::Program
+    }
+
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display())
     }
 
 }

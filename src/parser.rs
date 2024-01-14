@@ -4,8 +4,6 @@ Parser module: Houses implementation for beesafe language parser
 
 */
 
-use std::rc::Rc;
-
 use crate::ast::*;
 use crate::lexer::{Lexer, Token, TType};
 
@@ -81,7 +79,11 @@ impl<'a> Parser<'a> {
 
         */
         self.expression();
-        let node = self.operand_stack.pop().unwrap_or(Node::Error(Error{error_type: ParseError::PlaceHolder(format!(""))}));
+        let node = self.operand_stack.pop().unwrap_or(Node::Error(
+            Error{
+                src: self.source().to_string(),
+                error_type: ParseError::PlaceHolder(format!(""))
+        }));
         node
     }
 
@@ -227,23 +229,24 @@ impl<'a> Parser<'a> {
         match op_type {
             TType::Num => 
                 Node::Number(Number{
-                token: Rc::new(current_token.clone()), 
+                token: current_token.clone(), 
                 lineno: self.lexer.lineno(),
                 value: lexeme.parse().unwrap()
             }),
             TType::Literal => 
-                Node::StringLiteral( StringLiteral{token: Rc::new(current_token.clone()),
+                Node::StringLiteral( StringLiteral{token: current_token.clone(),
                 lineno: self.lexer.lineno(),
                 literal: lexeme.parse().unwrap(),
             }),
             TType::Id => {
             self.consume_next_token();
-            Node::Ident(Ident{token: Rc::new(Token{lexeme: lexeme.clone(), ttype: ttype.clone(), offset: offset}),
+            Node::Ident(Ident{token: Token{lexeme: lexeme.clone(), ttype: ttype.clone(), offset: offset},
             lineno: self.lexer.lineno(),
             value: lexeme.parse().unwrap()
             })
         },
             _ => Node::Error(Error{
+                src: self.source().to_string(),
                 error_type: ParseError::UndeterminedType(
                     format!("couldn't parse the terminal type\n {}", current_token.error_fmt(&self.source())))     
             })
@@ -259,11 +262,12 @@ impl<'a> Parser<'a> {
                 Node::UniaryOp(
                 UniaryOp{
                     lineno: self.lexer.lineno(),
-                    token: Rc::new(op_token),
+                    token: op_token,
                     right: right_operand,
                 })
             },
             _ => Node::Error(Error{
+                src: self.source().to_string(),
                 error_type: ParseError::UndeterminedType(
                     format!("couldn't parse uniary operator type \n {}", op_token.error_fmt(&self.source())))     
             })
@@ -281,7 +285,7 @@ impl<'a> Parser<'a> {
             Node::BinaryOp(
             BinaryOp{
                 lineno: self.lexer.lineno(),
-                token: Rc::new(op_token),
+                token: op_token,
                 right: Box::new(right_operand),
                 left: Box::new(left_operand)
             })
@@ -290,7 +294,7 @@ impl<'a> Parser<'a> {
             Node::BinaryOp(
             BinaryOp{
                 lineno: self.lexer.lineno(),
-                token: Rc::new(op_token),
+                token: op_token,
                 right: Box::new(right_operand),
                 left: Box::new(left_operand)
             })
@@ -299,12 +303,13 @@ impl<'a> Parser<'a> {
             Node::BinaryOp(
                 BinaryOp{
                     lineno: self.lexer.lineno(),
-                    token: Rc::new(op_token),
+                    token: op_token,
                     right: Box::new(right_operand),
                     left: Box::new(left_operand)
             })
         },
             _ => Node::Error(Error{
+                src: self.source().to_string(),
                 error_type: ParseError::UndeterminedType(
                     format!("couldn't parse binary operator type \n {}", op_token.error_fmt(&self.source())))     
             })

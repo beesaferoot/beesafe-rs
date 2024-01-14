@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 /*
     Symbol objects for beesafe 
 */
@@ -7,7 +5,7 @@ use crate::parser::ParseError;
 use crate::environment::Environment;
 
 pub enum Object {
-    NullObj(NullObj),
+    NullObj,
     BoolObj(BoolObj),
     ErrorObj(ErrorObj),
     NumberObj(NumberObj),
@@ -28,7 +26,6 @@ pub enum Type {
     BuiltinFunction,
 }
 
-pub struct NullObj {}
 pub struct NumberObj {
     pub value: i32
 }
@@ -85,27 +82,27 @@ impl ErrorObj {
 
 impl NumberObj {
     
-    pub fn visit<'e>(&self, env: &'e Rc<Environment>) -> i32 {
+    pub fn visit<'e>(&self, env: &'e Box<Environment>) -> i32 {
         self.value
     }
 
-    fn ttype(&self) -> Type {
+    pub fn ttype(&self) -> Type {
         Type::Number
     }
 }
 
 impl StringObj {
-    pub fn visit<'e>(&self, env: &'e Rc<Environment>) -> String {
+    pub fn visit<'e>(&self, env: &'e Box<Environment>) -> String {
         self.literal.clone()
     }
 
-    fn ttype(&self) -> Type {
+    pub fn ttype(&self) -> Type {
         Type::String
     }
 }
 
 impl BoolObj {
-    pub fn visit<'e>(&self, env: &'e Rc<Environment>) -> bool {
+    pub fn visit<'e>(&self, env: &'e Box<Environment>) -> bool {
         self.value
     }
 

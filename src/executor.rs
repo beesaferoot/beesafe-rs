@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use crate::ast::*;
 use crate::environment::Environment;
 use crate::symbols::*;
@@ -9,9 +7,9 @@ pub struct Executor<'l> {
 }
 
 impl<'l> Executor<'l> {
-
-    pub fn new(env: Box::<Environment<'l>>) -> Self {
-      Self { global_env: env }
+    pub fn new(env: Box<Environment<'l>>) -> Self {
+        Self { global_env: env, 
+        }
     }
 
     pub fn visit_expr(&self, node: &Node) -> Box<Object> {
@@ -23,7 +21,8 @@ impl<'l> Executor<'l> {
                 NodeType::Sub => self.visit_sub(op),
                 _ => self.emit_type_error(format!("invalid operation {}", op.token.lexeme)),
             },
-            Node::Number(num) => Box::new(Object::NumberObj(NumberObj{value: num.value})),
+            Node::Number(num) => Box::new(Object::NumberObj(NumberObj { value: num.value })),
+            Node::Null(_) => Box::new(Object::NullObj),
             _ => todo!(),
         }
     }
@@ -33,16 +32,20 @@ impl<'l> Executor<'l> {
         let right_node = self.visit_expr(&node.right);
 
         let lval = match left_node.as_ref() {
-            Object::NumberObj(val) => val.value,
-              _ => panic!("expected a number type")
+            Object::NumberObj(val) => Ok(val.value),
+            _ => Err("expected a number type"),
         };
 
         let rval = match right_node.as_ref() {
-          Object::NumberObj(val) => val.value,
-          _ => panic!("expected a number type")
+            Object::NumberObj(val) => Ok(val.value),
+            _ => Err("expected a number type"),
         };
-
-        Box::new(Object::NumberObj(NumberObj{value: lval + rval}))
+       return match (lval, rval) {
+            (Ok(lval), Ok(rval)) => Box::new(Object::NumberObj(NumberObj {
+                value: lval + rval,
+            })),
+           (_, _) => self.emit_type_error(format!("expected a number type"))
+        };
     }
 
     pub fn visit_sub(&self, node: &BinaryOp) -> Box<Object> {
