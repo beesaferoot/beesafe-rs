@@ -10,7 +10,7 @@ fn test_env_init() {
 #[test]     
 fn test_env_init_with_prev_env() {
     let mut pre_env = Box::new(Environment::new());
-    pre_env.add(&"name".to_string(), Box::new(Object::NumberObj(NumberObj{value: 3})));
+    pre_env.add(&"name".to_string(), Box::new(Object::Number(3)));
     let env = Environment::new_with_prev(&pre_env);
     assert_eq!(env.depth(), 2);
     assert!(match env.get(&"name".to_string()) {

@@ -4,48 +4,47 @@
 use crate::parser::ParseError;
 use crate::environment::Environment;
 
+#[derive(Debug)]
 pub enum Object {
-    NullObj,
-    BoolObj(BoolObj),
-    ErrorObj(ErrorObj),
-    NumberObj(NumberObj),
-    StringObj(StringObj)
-}
-
-#[derive(PartialEq, Debug)]
-pub enum Type {
-    Number, 
-    Bool,
     Null,
-    Return,
-    Error,
-    Function,
-    String,
-    Range,
-    Builtin,
-    BuiltinFunction,
+    Bool(bool),
+    Error(ErrorObj),
+    Number(i32),
+    String(String),
+    Float(f32)
 }
 
+#[derive(Debug)]
 pub struct NumberObj {
     pub value: i32
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TypeError {
     TypeMismatch(String),
     PlaceHolder(String),
 }
 
-pub struct ErrorObj {
-    pub parse_error: Option<ParseError>,
-    pub type_error: Option<TypeError>
+#[derive(Clone, Debug)]
+pub enum RuntimeError {
+    DivisionByZero
 }
 
+
+#[derive(Debug)]
+pub struct ErrorObj {
+    pub parse_error: Option<ParseError>,
+    pub type_error: Option<TypeError>,
+    pub run_time_error: Option<RuntimeError>
+}
+
+#[derive(Debug)]
 pub struct StringObj {
     pub literal: String
 }
 
+#[derive(Debug)]
 pub struct BoolObj {
     pub value: bool
 }
@@ -58,6 +57,7 @@ impl ErrorObj {
             Some(err) => match err {
                 ParseError::MissingIdent(err_msg) => err_msg,
                 ParseError::UndeterminedType(err_msg) => err_msg,
+                ParseError::InvalidSyntax(err_msg)=> err_msg,
                 ParseError::PlaceHolder(_) => String::from("")
             }, 
             None => String::from("")
@@ -74,20 +74,13 @@ impl ErrorObj {
         return err_str
 
     }
-
-    fn ttype(&self) -> Type {
-        Type::Error
-    }
 }
+
 
 impl NumberObj {
     
     pub fn visit<'e>(&self, env: &'e Box<Environment>) -> i32 {
         self.value
-    }
-
-    pub fn ttype(&self) -> Type {
-        Type::Number
     }
 }
 
@@ -95,18 +88,10 @@ impl StringObj {
     pub fn visit<'e>(&self, env: &'e Box<Environment>) -> String {
         self.literal.clone()
     }
-
-    pub fn ttype(&self) -> Type {
-        Type::String
-    }
 }
 
 impl BoolObj {
     pub fn visit<'e>(&self, env: &'e Box<Environment>) -> bool {
         self.value
-    }
-
-    pub fn ttype(&self) -> Type {
-        Type::Bool
     }
 }

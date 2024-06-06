@@ -1,4 +1,4 @@
-use beesafe::allocator::{Heap, Allocator, Cell};
+use beesafe::allocator::{Heap, Allocator};
 
 
 #[derive(Debug, PartialEq)]
@@ -20,9 +20,9 @@ fn test_heap_allocate() {
     let c1 = heap.allocate_cell(Object::Number(3));
 
     assert_eq!(heap.view_cell(c1), Some(&Object::Number(3)));
-    // free c1 
+    // free c1
     heap.free_cell(c1);
-    
+
     assert_eq!(heap.view_cell(c1), None);
     // dbg!(c1);
 }

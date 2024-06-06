@@ -1,12 +1,12 @@
-/* 
+/*
     Ast module: houses the Abstract Syntax Tree structure used during parse phase.
 */
 
 use std::fmt::Display;
 
-use crate::lexer::{Token, TType};
+use crate::lexer::{TType, Token};
 use crate::parser::ParseError;
-use miette::Diagnostic;
+use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -23,21 +23,24 @@ pub enum Node {
     Number(Number),
     Init(Init),
     Error(Error),
-    UniaryOp(UniaryOp), 
-    BinaryOp(BinaryOp)
+    UniaryOp(UniaryOp),
+    BinaryOp(BinaryOp),
+    For(ForStmt),
+    Range(Range),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum NodeType {
-    Undefined, 
+    Undefined,
     Boolean,
-    Stmt, 
+    Stmt,
     Block,
     Null,
     Number,
     Mul,
-    Add, 
+    Add,
     Sub,
+    USub,
     Div,
     Assign,
     Lt,
@@ -49,7 +52,7 @@ pub enum NodeType {
     Not,
     Expression,
     Return,
-    If, 
+    If,
     StringLiteral,
     Identifier,
     While,
@@ -61,7 +64,7 @@ pub enum NodeType {
     For,
     Call,
     Program,
-    Err
+    Err,
 }
 
 #[derive(PartialEq, PartialOrd)]
@@ -83,7 +86,6 @@ pub enum Precendence {
     Assign(i8),
     Minus(i8),
 }
-
 
 enum Association {
     Left = 0,
@@ -119,7 +121,7 @@ pub struct Null {
 pub struct Ident {
     pub lineno: i32,
     pub token: Token,
-    pub value: String
+    pub value: String,
 }
 
 #[derive(Debug)]
@@ -141,7 +143,7 @@ pub struct BinaryOp {
     pub lineno: i32,
     pub token: Token,
     pub right: Box<Node>,
-    pub left: Box<Node>, 
+    pub left: Box<Node>,
 }
 
 #[derive(Debug)]
@@ -171,7 +173,7 @@ pub struct While {
     pub lineno: i32,
     pub token: Token,
     pub predicate: Box<Node>,
-    pub block: Box<Node>, 
+    pub block: Box<Node>,
 }
 
 #[derive(Debug)]
@@ -179,7 +181,7 @@ pub struct If {
     pub lineno: i32,
     pub token: Token,
     pub predicate: Box<Node>,
-    pub alt: Box<Node>, 
+    pub alt: Box<Node>,
     pub block: Box<Node>,
 }
 
@@ -194,90 +196,127 @@ pub struct Boolean {
 pub struct Error {
     #[source_code]
     pub src: String,
-    pub error_type: ParseError
+    pub span: SourceSpan,
+    pub error_type: ParseError,
+}
+
+#[derive(Debug)]
+pub struct ForStmt {
+    pub lineno: i32,
+    pub token: Token,
+    pub target: Box<Node>,
+    pub iter: Box<Node>, // iterator protocol
+    pub block: Box<Node>,
+}
+
+#[derive(Debug)]
+pub struct Range {
+    pub lineno: i32,
+    pub start: Box<Node>,
+    pub end: Box<Node>,
 }
 
 impl Null {
-    pub fn ttype(&self) -> NodeType{
+    pub fn ttype(&self) -> NodeType {
         NodeType::Null
     }
 }
 
-impl Number  {
+impl Number {
     pub fn ttype(&self) -> NodeType {
         NodeType::Number
     }
 }
 
 impl Error {
+    pub fn new(src: String, span: SourceSpan, etype: ParseError) -> Self {
+        Self {
+            src,
+            span,
+            error_type: etype,
+        }
+    }
     pub fn display(&self) -> String {
         match &self.error_type {
             ParseError::MissingIdent(msg) => msg.clone(),
             ParseError::UndeterminedType(msg) => msg.clone(),
             ParseError::PlaceHolder(msg) => msg.clone(),
+            ParseError::InvalidSyntax(msg) => msg.clone(),
         }
     }
-
 }
 
 impl StringLiteral {
-
     pub fn ttype(&self) -> NodeType {
         NodeType::StringLiteral
     }
 }
 
 impl Ident {
-
     pub fn ttype(&self) -> NodeType {
         NodeType::Identifier
     }
 }
 
 impl Boolean {
-
     pub fn ttype(&self) -> NodeType {
         NodeType::Boolean
     }
-
 }
- 
+
 impl BinaryOp {
     pub fn ttype(&self) -> NodeType {
         match self.token.ttype {
             TType::Plus => NodeType::Add,
-            TType::Minus => NodeType::Sub, 
+            TType::Minus => NodeType::Sub,
             TType::Asterisk => NodeType::Mul,
             TType::Eq => NodeType::Eq,
-            TType::Div => NodeType::Div, 
-            TType::Gt => NodeType::Gt, 
-            TType::Lt => NodeType::Lt, 
-            _ => NodeType::Undefined
+            TType::Div => NodeType::Div,
+            TType::Gt => NodeType::Gt,
+            TType::Lt => NodeType::Lt,
+            _ => NodeType::Undefined,
         }
     }
-
 }
 
-impl  UniaryOp {
+impl UniaryOp {
     pub fn ttype(&self) -> NodeType {
         match self.token.ttype {
-            TType::UMinus => NodeType::Sub,
-            _ => NodeType::Undefined
+            TType::Minus => NodeType::USub,
+            TType::Plus => NodeType::Add,
+            _ => NodeType::Undefined,
         }
     }
-
 }
 
 impl Program {
     pub fn ttype(&self) -> NodeType {
         NodeType::Program
     }
-
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.display())
     }
+}
 
+impl Range {
+    pub fn new(lineno: i32, start: Node, end: Node) -> Self {
+        Range {
+            lineno,
+            start: Box::new(start),
+            end: Box::new(end),
+        }
+    }
+
+    pub fn ttype(&self) -> NodeType {
+        NodeType::Range
+    }
+}
+
+impl ForStmt {
+    pub fn ttype(&self) -> NodeType {
+        NodeType::For
+    }
 }

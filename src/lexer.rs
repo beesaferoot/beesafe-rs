@@ -4,14 +4,12 @@ Lexer module: contains code for tokenization phase.
 
 */
 
-
 use std::collections::HashMap;
 
-
-pub struct Lexer {
-    source: String, 
-    read_position: i32,  
-    keywords:  HashMap<String, TType>,
+pub struct Lexer<'l> {
+    source: &'l str,
+    read_position: i32,
+    keywords: HashMap<String, TType>,
     line_no: i32,
 }
 
@@ -19,35 +17,33 @@ pub struct Lexer {
 pub struct Token {
     pub lexeme: String,
     pub ttype: TType,
-    pub offset: i32
+    pub offset: i32,
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum TType {
-    Num, 
+    Num,
     Id,
-    True, 
-    False, 
-    Eq, 
-    NotEq, 
+    True,
+    False,
+    Eq,
+    NotEq,
     Gt,
     Lt,
     LtEq,
     GtEq,
     Assign,
-    Plus, 
-    UMinus,
+    Plus,
     Minus,
     Asterisk,
     Div,
     Define,
     Declare,
     Init,
-    Function,
     Newline,
-    Eob, 
+    Eob,
     Invalid,
-    Lbrace, 
+    Lbrace,
     Rbrace,
     Lparen,
     Rparen,
@@ -60,26 +56,35 @@ pub enum TType {
     Comma,
     Literal,
     Bang,
+    In,
+    Range,
 }
 
 impl Token {
-
     pub fn from(lexeme: &str, ttype: TType, offset: i32) -> Self {
-        Self { lexeme: lexeme.to_string(), ttype: ttype, offset: offset }
+        Self {
+            lexeme: lexeme.to_string(),
+            ttype: ttype,
+            offset: offset,
+        }
     }
 
     fn from_char(lexeme: char, ttype: TType, offset: i32) -> Self {
-        Self { lexeme: lexeme.to_string(), ttype: ttype, offset: offset }
+        Self {
+            lexeme: lexeme.to_string(),
+            ttype: ttype,
+            offset: offset,
+        }
     }
 
-    pub fn error_fmt(&self, src : &String) -> String {
+    pub fn error_fmt(&self, src: &str) -> String {
         let pos = self.offset as usize;
         let mut leftside = &src[..pos];
         let mut rest = &src[pos..];
         let mut err_str = String::from("");
         let mut temp: Vec<&str> = leftside.lines().collect();
 
-        leftside = temp[temp.len()-1];
+        leftside = temp[temp.len() - 1];
         temp = rest.lines().collect();
         rest = temp[0];
 
@@ -99,18 +104,17 @@ impl Token {
     }
 }
 
-impl Lexer {
-    
-    pub fn new(input_src: String) -> Self {
-        Lexer { 
-            source: input_src, 
-            read_position: 0, 
-            line_no: 1, 
+impl<'l> Lexer<'l> {
+    pub fn new(input_src: &'l str) -> Self {
+        Lexer {
+            source: input_src,
+            read_position: 0,
+            line_no: 1,
             keywords: Self::create_reserved(),
         }
     }
 
-    pub fn source(&self) -> &String {
+    pub fn source(&self) -> &'l str {
         &self.source
     }
 
@@ -133,56 +137,129 @@ impl Lexer {
     pub fn next_token(&mut self) -> Token {
         let ch = self.read_char_no_withspace();
         match ch {
-            '\0' => Token {lexeme: ch.to_string(), ttype: TType::Eob, offset: self.read_position - 1 },
-            '\n' => { 
-                self.line_no += 1;
-                Token {lexeme: ch.to_string(), ttype: TType::Newline, offset: self.read_position - 1 } 
+            '\0' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Eob,
+                offset: self.read_position - 1,
             },
-            '+' => Token { lexeme: ch.to_string(), ttype: TType::Plus, offset: self.read_position - 1 },
-            '-' => Token { lexeme: ch.to_string(), ttype: TType::Minus, offset: self.read_position - 1  },
-            '*' => Token { lexeme: ch.to_string(), ttype: TType::Asterisk, offset: self.read_position - 1  },
-            '/' => Token { lexeme: ch.to_string(), ttype: TType::Div, offset: self.read_position - 1  },
-            '=' =>  { 
+            '\n' => {
+                self.line_no += 1;
+                Token {
+                    lexeme: ch.to_string(),
+                    ttype: TType::Newline,
+                    offset: self.read_position - 1,
+                }
+            }
+            '+' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Plus,
+                offset: self.read_position - 1,
+            },
+            '-' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Minus,
+                offset: self.read_position - 1,
+            },
+            '*' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Asterisk,
+                offset: self.read_position - 1,
+            },
+            '/' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Div,
+                offset: self.read_position - 1,
+            },
+            '=' => {
                 let offset = self.read_position - 1;
                 if self.peek_char() == '=' {
                     let mut op = String::from(ch);
                     op.push(self.read_char());
-                    return Token { lexeme: op, ttype: TType::Eq, offset: offset }
+                    return Token {
+                        lexeme: op,
+                        ttype: TType::Eq,
+                        offset: offset,
+                    };
                 }
                 Token::from_char(ch, TType::Assign, offset)
+            }
+            ',' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Comma,
+                offset: self.read_position - 1,
             },
-            ',' => Token { lexeme: ch.to_string(), ttype: TType::Comma, offset: self.read_position - 1 },
-            '{' => Token { lexeme: ch.to_string(), ttype: TType::Lbrace, offset: self.read_position - 1  },
-            '}' => Token { lexeme: ch.to_string(), ttype: TType::Rbrace, offset: self.read_position - 1  },
-            '(' => Token { lexeme: ch.to_string(), ttype: TType::Lparen, offset: self.read_position - 1  },
-            ')' => Token { lexeme: ch.to_string(), ttype: TType::Rparen, offset: self.read_position - 1  },
+            '{' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Lbrace,
+                offset: self.read_position - 1,
+            },
+            '}' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Rbrace,
+                offset: self.read_position - 1,
+            },
+            '(' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Lparen,
+                offset: self.read_position - 1,
+            },
+            ')' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Rparen,
+                offset: self.read_position - 1,
+            },
             '<' => {
                 let offset = self.read_position - 1;
                 if self.peek_char() == '=' {
                     let mut op = String::from(ch);
                     op.push(self.read_char());
-                    return Token { lexeme: op, ttype: TType::LtEq, offset: offset}
+                    return Token {
+                        lexeme: op,
+                        ttype: TType::LtEq,
+                        offset,
+                    };
                 }
                 Token::from_char(ch, TType::Lt, offset)
-            },
+            }
             '>' => {
                 let offset = self.read_position - 1;
                 if self.peek_char() == '=' {
                     let mut op = String::from(ch);
                     op.push(self.read_char());
-                    return Token { lexeme: op, ttype: TType::GtEq, offset: offset}
-                } 
+                    return Token {
+                        lexeme: op,
+                        ttype: TType::GtEq,
+                        offset,
+                    };
+                }
                 Token::from_char(ch, TType::Gt, offset)
-            }, 
+            }
             '!' => {
-               let offset = self.read_position - 1;
-               if self.peek_char() == '=' {
-                let mut op = String::from(ch);
-                op.push(self.read_char());
-                return Token { lexeme: op, ttype: TType::NotEq, offset: offset}
-               }
-               Token::from_char(ch, TType::Bang, offset)
-            },
+                let offset = self.read_position - 1;
+                if self.peek_char() == '=' {
+                    let mut op = String::from(ch);
+                    op.push(self.read_char());
+                    return Token {
+                        lexeme: op,
+                        ttype: TType::NotEq,
+                        offset,
+                    };
+                }
+                Token::from_char(ch, TType::Bang, offset)
+            }
+            '.' => {
+                let offset = self.read_position - 1;
+                if self.peek_char() == '.' {
+                    let mut op = String::from(ch);
+                    op.push(self.read_char());
+                    return Token {
+                        lexeme: op,
+                        ttype: TType::Range,
+                        offset,
+                    };
+                }
+                Token::from_char(ch, TType::Invalid, offset)
+            }
             _ => {
                 let offset = self.read_position - 1;
                 if ch.is_alphabetic() || ch == '_' {
@@ -198,11 +275,11 @@ impl Lexer {
         }
     }
 
-    fn peek_char(& self) -> char {
+    fn peek_char(&self) -> char {
         let pos = self.read_position as usize;
         if self.source.len() > pos {
-           let s = &self.source[pos..];
-           return s.chars().next().unwrap_or('\0');
+            let s = &self.source[pos..];
+            return s.chars().next().unwrap_or('\0');
         }
         '\0'
     }
@@ -214,11 +291,10 @@ impl Lexer {
             Some(ch) => {
                 self.read_position += 1;
                 ch
-            },
-            None => return '\0'
+            }
+            None => return '\0',
         }
     }
-    
 
     fn read_char_no_withspace(&mut self) -> char {
         let mut ch = self.read_char();
@@ -229,7 +305,7 @@ impl Lexer {
     }
 
     fn read_identifer(&mut self, ch: char) -> Token {
-        let offset = self.read_position - 1 ;
+        let offset = self.read_position - 1;
         let mut ident = String::from(ch);
         let mut look_ahead: char;
         while self.peek_char().is_alphanumeric() || self.peek_char() == '_' {
@@ -238,50 +314,67 @@ impl Lexer {
         }
 
         match self.keywords.get(&ident) {
-            Some(ttype) => return Token { lexeme: ident, ttype: *ttype, offset},
-            None => ()
+            Some(ttype) => {
+                return Token {
+                    lexeme: ident,
+                    ttype: *ttype,
+                    offset,
+                }
+            }
+            None => (),
         }
-        Token { lexeme: ident, ttype: TType::Id, offset: offset}
-
+        Token {
+            lexeme: ident,
+            ttype: TType::Id,
+            offset,
+        }
     }
 
     fn read_number(&mut self, ch: char) -> Token {
-        let offset = self.read_position - 1 ;
+        let offset = self.read_position - 1;
         let mut num_literal = String::from(ch);
         let mut look_ahead: char;
         while self.peek_char().is_numeric() {
             look_ahead = self.read_char();
             num_literal.push(look_ahead);
         }
-        Token { lexeme: num_literal, ttype: TType::Num, offset: offset }
+        Token {
+            lexeme: num_literal,
+            ttype: TType::Num,
+            offset,
+        }
     }
 
     fn read_string_literal(&mut self, ch: char) -> Token {
-        let offset = self.read_position - 1 ;
+        let offset = self.read_position - 1;
         let mut str_literal = String::from("");
 
         while self.peek_char() != ch {
             str_literal.push(self.read_char())
         }
-        // move read position one step forward to cover the closing quote 
+        // move read position one step forward to cover the closing quote
         self.read_char();
-        Token { lexeme: str_literal, ttype: TType::Literal, offset: offset }
-
+        Token {
+            lexeme: str_literal,
+            ttype: TType::Literal,
+            offset,
+        }
     }
 
     // create table for keywords
-    fn create_reserved() ->  HashMap<String, TType> {
-        let keywords: HashMap<String,TType> = HashMap::from([
-            ("true".to_string(), TType::True), 
+    fn create_reserved() -> HashMap<String, TType> {
+        let keywords: HashMap<String, TType> = HashMap::from([
+            ("true".to_string(), TType::True),
             ("false".to_string(), TType::False),
             ("init".to_string(), TType::Init),
             ("if".to_string(), TType::If),
-            ("else".to_string(), TType::Else), 
+            ("else".to_string(), TType::Else),
             ("for".to_string(), TType::For),
-            ("return".to_string(), TType::Return), 
+            ("return".to_string(), TType::Return),
             ("null".to_string(), TType::Null),
             ("declare".to_string(), TType::Declare),
             ("define".to_string(), TType::Define),
+            ("in".to_string(), TType::In),
         ]);
         keywords
     }
