@@ -1,9 +1,9 @@
 use beesafe::environment::Environment;
+use beesafe::parser::Parser;
 use beesafe::symbols::Object;
+use beesafe::{executor, lexer};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
-use beesafe::{executor, lexer};
-use beesafe::parser::Parser;
 
 fn main() {
     let mut rl = DefaultEditor::new().unwrap();
@@ -16,40 +16,39 @@ fn main() {
                 let mut parser = Parser::new(&mut lexer);
                 let program = parser.parse_program();
                 println!("{:?}", program);
-                let executor = executor::Executor::new(Box::new(Environment::new()));
+                let mut executor = executor::Executor::new(Box::new(Environment::new()));
                 if parser.has_errors() {
                     parser.show_errors();
-                }else {
+                } else {
                     let executed_stmts = executor.visit_program(&program);
                     for stmt in executed_stmts {
                         // match stmt {
                         //     Node::Return(value) => println!("{}", value),
                         //     _ => ()
-                        // } 
-                        match  stmt.as_ref() {
+                        // }
+                        match stmt.as_ref() {
                             Object::Error(err) => {
                                 println!("{}", err.visit())
-                            },
+                            }
                             _ => {
-                                println!("{:?}", stmt)
+                                println!("{:?}", stmt.as_ref())
                             }
                         }
                     }
                 }
-
             }
             Err(ReadlineError::Interrupted) => {
-                // CTRL-C so exit 
-                break
-            },
+                // CTRL-C so exit
+                break;
+            }
             Err(ReadlineError::Eof) => {
                 // CTRL-D so exit
-                break
-            },
+                break;
+            }
             Err(err) => {
                 println!("Error: {:?}", err);
-                break
-            } 
+                break;
+            }
         }
     }
 }

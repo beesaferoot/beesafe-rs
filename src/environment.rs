@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use crate::symbols::Object;
+use crate::allocator::Cell;
 
 pub struct Environment<'a> {
     prev: Option<&'a Box<Environment<'a>>>,
     depth: i32,
-    table: HashMap<String, Box<Object>>,
+    table: HashMap<String, Cell<Object>>,
     recursion_limit: i32
 }
 
@@ -28,13 +29,13 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn add(&mut self, identifier: &String, value: Box<Object>) {
+    pub fn add(&mut self, identifier: &String, value: Cell<Object>) {
         self.table.insert(identifier.to_string(), value);
     }
 
-    pub fn get(&self, identifier: &String) -> Option<&Box<Object>> {
+    pub fn get(&self, identifier: &String) -> Option<&Cell<Object>> {
         let mut current_env = self.prev();
-        let mut ident_value: Option<&Box<Object>> = None;
+        let mut ident_value: Option<&Cell<Object>> = None;
         if self.table.contains_key(identifier) {
             return self.table.get(identifier);
         }
