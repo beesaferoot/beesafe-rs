@@ -292,7 +292,7 @@ impl<'l> Lexer<'l> {
                 self.read_position += 1;
                 ch
             }
-            None => return '\0',
+            None =>  '\0',
         }
     }
 

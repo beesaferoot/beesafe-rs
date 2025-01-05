@@ -82,6 +82,7 @@ impl<'l> Executor<'l> {
     pub fn visit_mul(&mut self, node: &BinaryOp) -> Cell<Object> {
         let left_node = self.visit_expr(&node.left);
         let right_node = self.visit_expr(&node.right);
+    
 
         let lval = match left_node.as_ref() {
             Object::Number(val) => Ok(val),

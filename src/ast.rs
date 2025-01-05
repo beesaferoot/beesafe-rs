@@ -192,10 +192,11 @@ pub struct Boolean {
     pub value: bool,
 }
 
-#[derive(Error, Debug, Diagnostic)]
+#[derive(Clone, Error, Debug, Diagnostic)]
 pub struct Error {
     #[source_code]
     pub src: String,
+    #[label("{error_type}")]
     pub span: SourceSpan,
     pub error_type: ParseError,
 }

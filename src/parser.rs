@@ -5,6 +5,7 @@ Parser module: Houses implementation for beesafe language parser
 */
 
 use miette::SourceSpan;
+use thiserror::Error;
 
 use crate::ast::*;
 use crate::lexer::{Lexer, TType, Token};
@@ -18,11 +19,15 @@ pub struct Parser<'a> {
     errors: Vec<Error>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Error)]
 pub enum ParseError {
+    #[error("Missing identifier: {0}")]
     MissingIdent(String),
+    #[error("Undetermined type: {0}")]
     UndeterminedType(String),
+    #[error("Placeholder error: {0}")]
     PlaceHolder(String),
+    #[error("Invalid syntax: {0}")]
     InvalidSyntax(String),
 }
 
@@ -47,8 +52,11 @@ impl<'a> Parser<'a> {
     }
 
     pub fn show_errors(&self) {
-        for err in &self.errors {
-            println!("{}", err.display());
+        for err in self.errors.clone().into_iter() {
+            eprint!(
+                "{:?}",
+                miette::Report::new(err.clone()).with_source_code(err.src.clone())
+            );
         }
     }
 
@@ -301,12 +309,12 @@ impl<'a> Parser<'a> {
                 right: Box::new(right_operand),
                 left: Box::new(left_operand),
             }),
-            TType::Asterisk => Node::BinaryOp(BinaryOp {
-                lineno: self.lexer.lineno(),
-                token: op_token,
-                right: Box::new(right_operand),
-                left: Box::new(left_operand),
-            }),
+            // TType::Asterisk => Node::BinaryOp(BinaryOp {
+            //     lineno: self.lexer.lineno(),
+            //     token: op_token,
+            //     right: Box::new(right_operand),
+            //     left: Box::new(left_operand),
+            // }),
             TType::Div => Node::BinaryOp(BinaryOp {
                 lineno: self.lexer.lineno(),
                 token: op_token,
@@ -337,11 +345,11 @@ impl<'a> Parser<'a> {
                 value: true,
             });
         }
-        return Node::Boolean(Boolean {
+        Node::Boolean(Boolean {
             lineno: self.lexer.lineno(),
             token: current_token.clone(),
             value: false,
-        });
+        })
     }
 
     fn parse_init_stmt(&mut self) -> Node {
@@ -514,7 +522,7 @@ impl<'a> Parser<'a> {
 
     fn parse_for_iter_expr(&mut self) -> Result<Node, Error> {
         let current_token = self.current_token.as_ref().unwrap();
-        return match current_token.ttype {
+        match current_token.ttype {
             TType::Num => self.parse_num_range(),
             _ => Err(Error::new(
                 self.source().to_string(),
@@ -525,7 +533,7 @@ impl<'a> Parser<'a> {
                     .into(),
                 ParseError::InvalidSyntax("".to_string()),
             )),
-        };
+        }
     }
 
     fn parse_num_range(&mut self) -> Result<Node, Error> {
