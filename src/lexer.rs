@@ -6,8 +6,8 @@ Lexer module: contains code for tokenization phase.
 
 use std::collections::HashMap;
 
-pub struct Lexer<'l> {
-    source: &'l str,
+pub struct Lexer {
+    source: &'static str,
     read_position: i32,
     keywords: HashMap<String, TType>,
     line_no: i32,
@@ -104,8 +104,8 @@ impl Token {
     }
 }
 
-impl<'l> Lexer<'l> {
-    pub fn new(input_src: &'l str) -> Self {
+impl Lexer {
+    pub fn new(input_src: &'static str) -> Self {
         Lexer {
             source: input_src,
             read_position: 0,
@@ -114,7 +114,7 @@ impl<'l> Lexer<'l> {
         }
     }
 
-    pub fn source(&self) -> &'l str {
+    pub fn source(&self) -> &'static str {
         &self.source
     }
 
@@ -292,7 +292,7 @@ impl<'l> Lexer<'l> {
                 self.read_position += 1;
                 ch
             }
-            None =>  '\0',
+            None => '\0',
         }
     }
 

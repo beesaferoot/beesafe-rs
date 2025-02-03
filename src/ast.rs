@@ -195,7 +195,7 @@ pub struct Boolean {
 #[derive(Clone, Error, Debug, Diagnostic)]
 pub struct Error {
     #[source_code]
-    pub src: String,
+    pub src: &'static str,
     #[label("{error_type}")]
     pub span: SourceSpan,
     pub error_type: ParseError,
@@ -230,7 +230,7 @@ impl Number {
 }
 
 impl Error {
-    pub fn new(src: String, span: SourceSpan, etype: ParseError) -> Self {
+    pub fn new(src: &'static str, span: SourceSpan, etype: ParseError) -> Self {
         Self {
             src,
             span,

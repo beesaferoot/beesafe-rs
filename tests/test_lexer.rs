@@ -2,13 +2,11 @@ use beesafe::lexer::{Lexer, TType, Token};
 
 #[test]
 fn test_next_token() {
-    let input_string = String::from(
-        "declare x
+    let input = "declare x
    declare y
    for i in 1..4 {}
-   ",
-    );
-    let mut lexer = Lexer::new(input_string.as_str());
+   ";
+    let mut lexer = Lexer::new(input);
     let tokens = lexer.parse_tokens();
     println!("{:?} ", tokens);
     assert_eq!(

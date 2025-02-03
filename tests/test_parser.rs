@@ -5,16 +5,14 @@ use beesafe::parser;
 
 #[test]
 fn test_expression() {
-    let input_string = String::from(
-        r#"
+    let input = r#"
         1 + 1 
         2 - 3 + 5 
         3 / 5 
         8 * 9
         -9
-    "#,
-    );
-    let mut lexer = lexer::Lexer::new(input_string.as_str());
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 5);
@@ -40,12 +38,10 @@ fn test_expression() {
 
 #[test]
 fn test_for_int_range_stmt() {
-    let input_string = String::from(
-        r#"
+    let input = r#"
     for i in 1..4 {}
-"#,
-    );
-    let mut lexer = lexer::Lexer::new(input_string.as_str());
+"#;
+    let mut lexer = lexer::Lexer::new(input);
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);
@@ -53,12 +49,10 @@ fn test_for_int_range_stmt() {
 
 #[test]
 fn test_error() {
-    let input_string = String::from(
-        r#"
+    let input = r#"
     3 // 4
-    "#,
-    );
-    let mut lexer = lexer::Lexer::new(input_string.as_str());
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);

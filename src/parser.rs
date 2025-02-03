@@ -11,7 +11,7 @@ use crate::ast::*;
 use crate::lexer::{Lexer, TType, Token};
 
 pub struct Parser<'a> {
-    lexer: &'a mut Lexer<'a>,
+    lexer: &'a mut Lexer,
     current_token: Option<Token>,
     peek_token: Option<Token>,
     operator_stack: Vec<Token>,
@@ -32,7 +32,7 @@ pub enum ParseError {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(lexer: &'a mut Lexer<'a>) -> Self {
+    pub fn new(lexer: &'a mut Lexer) -> Self {
         Parser {
             lexer,
             current_token: None,
@@ -43,7 +43,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn source(&self) -> &'a str {
+    pub fn source(&self) -> &'static str {
         self.lexer.source()
     }
 
@@ -87,7 +87,7 @@ impl<'a> Parser<'a> {
         */
         self.expression();
         let node = self.operand_stack.pop().unwrap_or(Node::Error(Error {
-            src: self.source().to_string(),
+            src: self.source(),
             span: (0, 0).into(),
             error_type: ParseError::PlaceHolder(format!("")),
         }));
@@ -258,7 +258,7 @@ impl<'a> Parser<'a> {
                 token: current_token.clone(),
             }),
             _ => Node::Error(Error {
-                src: self.source().to_string(),
+                src: self.source(),
                 span: (offset as usize, lexeme.len() + offset as usize).into(),
                 error_type: ParseError::UndeterminedType(format!(
                     "couldn't parse the terminal type\n {}",
@@ -276,7 +276,7 @@ impl<'a> Parser<'a> {
                 right: right_operand,
             }),
             _ => Node::Error(Error {
-                src: self.source().to_string(),
+                src: self.source(),
                 span: (
                     op_token.offset as usize,
                     op_token.lexeme.len() + op_token.offset as usize,
@@ -322,7 +322,7 @@ impl<'a> Parser<'a> {
                 left: Box::new(left_operand),
             }),
             _ => Node::Error(Error {
-                src: self.source().to_string(),
+                src: self.source(),
                 span: (
                     op_token.offset as usize,
                     op_token.lexeme.len() + op_token.offset as usize,
@@ -371,7 +371,7 @@ impl<'a> Parser<'a> {
 
         if cur_token.ttype != TType::Lbrace {
             return Err(Error::new(
-                self.source().to_string(),
+                self.source(),
                 (
                     cur_token.offset as usize,
                     cur_token.lexeme.len() + cur_token.offset as usize,
@@ -458,7 +458,7 @@ impl<'a> Parser<'a> {
                     )
                         .into();
                     let err = Error::new(
-                        self.source().to_string(),
+                        self.source(),
                         span,
                         ParseError::InvalidSyntax("".to_string()),
                     );
@@ -470,7 +470,7 @@ impl<'a> Parser<'a> {
             }
             None => {
                 let err = Error::new(
-                    self.source().to_string(),
+                    self.source(),
                     (0, 0).into(),
                     ParseError::InvalidSyntax("".to_string()),
                 );
@@ -485,7 +485,7 @@ impl<'a> Parser<'a> {
         if self.current_token.as_ref().unwrap().ttype != TType::In {
             let current_token = self.current_token.as_ref().unwrap();
             return Node::Error(Error::new(
-                self.source().to_string(),
+                self.source(),
                 (
                     current_token.offset as usize,
                     current_token.lexeme.len() + current_token.offset as usize,
@@ -525,7 +525,7 @@ impl<'a> Parser<'a> {
         match current_token.ttype {
             TType::Num => self.parse_num_range(),
             _ => Err(Error::new(
-                self.source().to_string(),
+                self.source(),
                 (
                     current_token.offset as usize,
                     current_token.lexeme.len() + current_token.offset as usize,
@@ -546,7 +546,7 @@ impl<'a> Parser<'a> {
 
         if cur_token.ttype != TType::Range {
             return Err(Error::new(
-                self.source().to_string(),
+                self.source(),
                 (
                     cur_token.offset as usize,
                     cur_token.lexeme.len() + cur_token.offset as usize,
@@ -562,7 +562,7 @@ impl<'a> Parser<'a> {
 
         if cur_token.ttype != TType::Num {
             return Err(Error::new(
-                self.source().to_string(),
+                self.source(),
                 (
                     cur_token.offset as usize,
                     cur_token.lexeme.len() + cur_token.offset as usize,

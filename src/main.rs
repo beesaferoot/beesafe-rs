@@ -11,12 +11,13 @@ fn main() {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
-                let mut lexer = lexer::Lexer::new(line.as_str());
+                let line_static: &'static str = Box::leak(line.to_string().into_boxed_str());
+                let mut lexer = lexer::Lexer::new(line_static);
                 // println!("{:?}", lexer.parse_tokens());
                 let mut parser = Parser::new(&mut lexer);
                 let program = parser.parse_program();
                 println!("{:?}", program);
-                let mut executor = executor::Executor::new(Box::new(Environment::new()));
+                let mut executor = executor::Executor::new(Box::new(Environment::new()), &parser);
                 if parser.has_errors() {
                     parser.show_errors();
                 } else {
@@ -27,9 +28,7 @@ fn main() {
                         //     _ => ()
                         // }
                         match stmt.as_ref() {
-                            Object::Error(err) => {
-                                println!("{}", err.visit())
-                            }
+                            Object::Error(err) => err.visit(),
                             _ => {
                                 println!("{:?}", stmt.as_ref())
                             }

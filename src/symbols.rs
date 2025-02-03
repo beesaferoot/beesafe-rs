@@ -1,8 +1,10 @@
+use miette::{Diagnostic, SourceSpan};
+
 /*
     Symbol objects for beesafe
 */
 use crate::environment::Environment;
-use crate::parser::ParseError;
+use thiserror::Error;
 
 #[derive(Debug)]
 pub enum Object {
@@ -21,18 +23,35 @@ pub struct NumberObj {
 
 #[derive(Clone, Debug)]
 pub enum TypeError {
-    TypeMismatch(String),
-    PlaceHolder(String),
+    TypeMismatch(ErrInfo),
+    PlaceHolder(ErrInfo),
+}
+
+#[derive(Clone, Debug, Error, Diagnostic)]
+pub struct ErrInfo {
+    pub src: &'static str,
+    pub msg: String,
+    #[label("{err_type}")]
+    pub span: SourceSpan,
+    pub err_type: ErrType,
+}
+
+#[derive(Clone, Debug, Error)]
+pub enum ErrType {
+    #[error("Type Error: {0}")]
+    TypeError(String),
+    #[error("Runtime Error: {0}")]
+    RuntimeError(String),
 }
 
 #[derive(Clone, Debug)]
 pub enum RuntimeError {
-    DivisionByZero,
+    DivisionByZero(ErrInfo),
 }
 
 #[derive(Debug)]
 pub struct ErrorObj {
-    pub parse_error: Option<ParseError>,
+    // pub parse_error: Option<ParseError>,
     pub type_error: Option<TypeError>,
     pub run_time_error: Option<RuntimeError>,
 }
@@ -48,35 +67,31 @@ pub struct BoolObj {
 }
 
 impl ErrorObj {
-    pub fn visit<'e>(&self) -> String {
-        let mut err_str = match self.parse_error.clone() {
+    pub fn visit<'e>(&self) {
+        match self.type_error.clone() {
             Some(err) => match err {
-                ParseError::MissingIdent(err_msg) => err_msg,
-                ParseError::UndeterminedType(err_msg) => err_msg,
-                ParseError::InvalidSyntax(err_msg) => err_msg,
-                ParseError::PlaceHolder(_) => String::from(""),
+                TypeError::TypeMismatch(info) => eprint!(
+                    "{:?}",
+                    miette::Report::new(info.clone()).with_source_code(info.src.clone())
+                ),
+                TypeError::PlaceHolder(info) => eprint!(
+                    "{:?}",
+                    miette::Report::new(info.clone()).with_source_code(info.src.clone())
+                ),
             },
-            None => String::from(""),
-        };
-        if err_str.is_empty() {
-            err_str = match self.type_error.clone() {
-                Some(err) => match err {
-                    TypeError::TypeMismatch(err_msg) => err_msg.to_owned(),
-                    TypeError::PlaceHolder(err_msg) => err_msg.to_owned(),
-                },
-                None => String::from(""),
-            }
+            None => (),
         }
 
-        if err_str.is_empty() {
-            err_str = match self.run_time_error.clone() {
-                Some(err) => match err {
-                    RuntimeError::DivisionByZero => String::from("Division by zero not allowed"),
-                },
-                None => String::from(""),
-            }
+        match self.run_time_error.clone() {
+            Some(err) => match err {
+                RuntimeError::DivisionByZero(info) => eprint!(
+                    "{:?}",
+                    miette::Report::new(info.clone()).with_source_code(info.src.clone())
+                ),
+            },
+            None => (),
         }
-        err_str
+        return;
     }
 }
 
@@ -95,5 +110,10 @@ impl StringObj {
 impl BoolObj {
     pub fn visit<'e>(&self, env: &'e Box<Environment>) -> bool {
         self.value
+    }
+}
+impl std::fmt::Display for ErrInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.msg)
     }
 }
