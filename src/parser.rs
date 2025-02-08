@@ -55,7 +55,7 @@ impl<'a> Parser<'a> {
         for err in self.errors.clone().into_iter() {
             eprint!(
                 "{:?}",
-                miette::Report::new(err.clone()).with_source_code(err.src.clone())
+                miette::Report::new(err.clone()).with_source_code(err.src)
             );
         }
     }

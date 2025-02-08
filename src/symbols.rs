@@ -72,11 +72,11 @@ impl ErrorObj {
             Some(err) => match err {
                 TypeError::TypeMismatch(info) => eprint!(
                     "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src.clone())
+                    miette::Report::new(info.clone()).with_source_code(info.src)
                 ),
                 TypeError::PlaceHolder(info) => eprint!(
                     "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src.clone())
+                    miette::Report::new(info.clone()).with_source_code(info.src)
                 ),
             },
             None => (),
@@ -86,7 +86,7 @@ impl ErrorObj {
             Some(err) => match err {
                 RuntimeError::DivisionByZero(info) => eprint!(
                     "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src.clone())
+                    miette::Report::new(info.clone()).with_source_code(info.src)
                 ),
             },
             None => (),

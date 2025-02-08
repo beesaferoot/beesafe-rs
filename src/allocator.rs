@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 use std::hash::Hash;
-use std::mem::size_of;
+// use std::mem::size_of;
 
 pub trait Allocator<T> {
     fn new() -> Self;
@@ -35,11 +35,11 @@ impl<T> Allocator<T> for Heap<T> {
     fn allocate_cell(&mut self, value: T) -> Cell<T> {
         let ptr = Box::into_raw(Box::new(value));
         let cell = Cell { ptr };
-        println!(
-            "allocated type {} of size {}",
-            std::any::type_name::<T>(),
-            size_of::<T>()
-        );
+        // println!(
+        //     "allocated type {} of size {}",
+        //     std::any::type_name::<T>(),
+        //     size_of::<T>()
+        // );
 
         self.cells.insert(cell);
 
@@ -47,11 +47,11 @@ impl<T> Allocator<T> for Heap<T> {
     }
 
     fn free_cell(&mut self, cell: Cell<T>) {
-        println!(
-            "free type {} of size {}",
-            std::any::type_name::<T>(),
-            size_of::<T>()
-        );
+        // println!(
+        //     "free type {} of size {}",
+        //     std::any::type_name::<T>(),
+        //     size_of::<T>()
+        // );
         if self.cells.contains(&cell) {
             // auto cleanup by converting raw pointer back to a managed box
             _ = unsafe { Box::from_raw(cell.ptr) };
