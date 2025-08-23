@@ -1,0 +1,101 @@
+P.S work in progress 
+
+
+GRAMMAR (EBNF) FOR BEESAFE
+--------------------------
+
+program        := header? statement* EOF
+
+header         := module_decl | package_decl
+module_decl    := "module" qualified_ident
+qualified_ident:= identifier ("." identifier)*
+
+statement      := block
+                | if_stmt
+                | while_stmt
+                | for_stmt
+                | func_def
+                | declare_stmt
+                | init_stmt
+                | return_stmt
+                | expr_stmt
+
+block          := "{" statement* "}"
+
+if_stmt        := "if" "("? expression ")"? block ("else" (if_stmt | block))?
+while_stmt     := "while" "("? expression ")"? block
+
+for_stmt       := "for" identifier "in" range_expr block
+range_expr     := expression ".." expression
+                | "(" expression ".." expression ")"
+
+func_def       := "define" identifier "(" param_list? ")" block
+param_list     := identifier ("," identifier)*
+
+declare_stmt   := "declare" identifier_list
+identifier_list:= identifier ("," identifier)*
+
+init_stmt      := "init" assign_stmt
+assign_stmt    := assign_target "=" expression
+assign_target  := identifier | index_expr
+
+expr_stmt      := expression
+
+expression     := assignment
+assignment     := logical_or ("=" assignment)?
+
+logical_or     := logical_and
+logical_and    := equality
+
+equality       := comparison (("==" | "!=") comparison)*
+comparison     := term (("<" | "<=" | ">" | ">=") term)*
+term           := factor (("+" | "-") factor)*
+factor         := unary (("*" | "/") unary)*
+unary          := ("!" | "+" | "-") unary | postfix
+
+postfix        := primary ( call_suffix | index_suffix )*
+call_suffix    := "(" arg_list? ")"
+index_suffix   := "[" expression "]"
+
+arg_list       := expression ("," expression)*
+
+primary        := number
+                | string
+                | "true" | "false" | "null"
+                | identifier
+                | "(" expression ")"
+                | "(" range_expr ")"
+
+// Lexical
+identifier     := /[A-Za-z_][A-Za-z0-9_]*/
+number         := /[0-9]+/
+string         := /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/
+comment        := "//" [^\n]*
+
+// Examples
+// module stdlib
+//
+// for i in (1..10) {
+//     for j in (5..9) {
+//         print i, j
+//     }
+// }
+//
+// define subtext() {
+//     return "ehl"
+// }
+//
+// define entry() {
+//     declare text
+//     text = 6
+//     init subval = 89
+//     while (i < j) {
+//         // ...
+//     }
+// }
+//
+// define main(args) {
+//     for arg in args {
+//         print arg
+//     }
+// }
