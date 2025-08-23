@@ -139,6 +139,15 @@ impl<'a> Parser<'a> {
             TType::Id => {
                 let node = self.create_node(&ttype);
                 self.operand_stack.push(node);
+                // Check if this is a function call
+                if let Some(peek) = self.peek_token.as_ref() {
+                    if peek.ttype == TType::Lparen {
+                        self.consume_next_token();
+                        let call_node = self.parse_call_expr();
+                        self.operand_stack.pop();
+                        self.operand_stack.push(call_node);
+                    }
+                }
             }
             TType::Literal => {
                 let node = self.create_node(&ttype);
@@ -152,17 +161,63 @@ impl<'a> Parser<'a> {
                 let node = self.parse_bool();
                 self.operand_stack.push(node);
             }
+            TType::Lparen => {
+                self.consume_next_token();
+                self.expression();
+
+                if self.peek_token.as_ref().unwrap().ttype != TType::Rparen {
+                    let curr_token = self.current_token.as_ref().unwrap();
+                    let span = (
+                        curr_token.offset as usize,
+                        curr_token.lexeme.len() + curr_token.offset as usize,
+                    )
+                        .into();
+                    let err = Error::new(
+                        self.source(),
+                        span,
+                        ParseError::InvalidSyntax(format!(
+                            "Expected ')' after expression, got {}",
+                            curr_token.lexeme
+                        )),
+                    );
+                    self.errors.push(err);
+                } else {
+                    self.consume_next_token();
+                }
+            }
             _ => {
-                if ttype == TType::Minus || ttype == TType::Plus {
+                if self.resolve_uniary_op(ttype) {
                     let token = curr_token.clone();
                     self.push_operator(token);
                     self.consume_next_token();
                     self.produce();
                     self.pop_operator(false);
                 } else {
-                    //TODO: store error
+                    let span = (
+                        curr_token.offset as usize,
+                        curr_token.lexeme.len() + curr_token.offset as usize,
+                    )
+                        .into();
+                    let err = Error::new(
+                        self.source(),
+                        span,
+                        ParseError::InvalidSyntax(format!(
+                            "Unexpected token in expression: {}",
+                            curr_token.lexeme
+                        )),
+                    );
+                    self.errors.push(err);
                 }
             }
+        }
+    }
+
+    fn resolve_uniary_op(&self, op_type: TType) -> bool {
+        match op_type {
+            TType::Bang => true,
+            TType::Minus => true,
+            TType::Plus => true,
+            _ => false,
         }
     }
 
@@ -241,18 +296,15 @@ impl<'a> Parser<'a> {
                 lineno: self.lexer.lineno(),
                 literal: lexeme.parse().unwrap(),
             }),
-            TType::Id => {
-                self.consume_next_token();
-                Node::Ident(Ident {
-                    token: Token {
-                        lexeme: lexeme.clone(),
-                        ttype: ttype.clone(),
-                        offset,
-                    },
-                    lineno: self.lexer.lineno(),
-                    value: lexeme.parse().unwrap(),
-                })
-            }
+            TType::Id => Node::Ident(Ident {
+                token: Token {
+                    lexeme: lexeme.clone(),
+                    ttype: ttype.clone(),
+                    offset,
+                },
+                lineno: self.lexer.lineno(),
+                value: lexeme.parse().unwrap(),
+            }),
             TType::Null => Node::Null(Null {
                 lineno: self.lexer.lineno(),
                 token: current_token.clone(),
@@ -297,25 +349,16 @@ impl<'a> Parser<'a> {
         right_operand: Node,
     ) -> Node {
         match op_token.ttype {
-            TType::Plus => Node::BinaryOp(BinaryOp {
-                lineno: self.lexer.lineno(),
-                token: op_token,
-                right: Box::new(right_operand),
-                left: Box::new(left_operand),
-            }),
-            TType::Minus => Node::BinaryOp(BinaryOp {
-                lineno: self.lexer.lineno(),
-                token: op_token,
-                right: Box::new(right_operand),
-                left: Box::new(left_operand),
-            }),
-            // TType::Asterisk => Node::BinaryOp(BinaryOp {
-            //     lineno: self.lexer.lineno(),
-            //     token: op_token,
-            //     right: Box::new(right_operand),
-            //     left: Box::new(left_operand),
-            // }),
-            TType::Div => Node::BinaryOp(BinaryOp {
+            TType::Plus
+            | TType::Minus
+            | TType::Asterisk
+            | TType::Div
+            | TType::Lt
+            | TType::LtEq
+            | TType::Gt
+            | TType::GtEq
+            | TType::Eq
+            | TType::NotEq => Node::BinaryOp(BinaryOp {
                 lineno: self.lexer.lineno(),
                 token: op_token,
                 right: Box::new(right_operand),
@@ -353,15 +396,205 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_init_stmt(&mut self) -> Node {
-        todo!()
+        let lineno = self.lexer.lineno();
+        let init_token = self.current_token.clone().unwrap();
+
+        self.consume_next_token();
+
+        let current_token = self.current_token.as_ref().unwrap();
+        if current_token.ttype != TType::Id {
+            let span = (
+                current_token.offset as usize,
+                current_token.lexeme.len() + current_token.offset as usize,
+            )
+                .into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::MissingIdent(format!(
+                    "Expected identifier after 'init' keyword, got {}",
+                    current_token.lexeme
+                )),
+            );
+            return Node::Error(err);
+        }
+
+        let ttype = current_token.ttype;
+        let ident = self.create_node(&ttype);
+        self.consume_next_token();
+
+        let current_token = self.current_token.as_ref().unwrap();
+        if current_token.ttype != TType::Assign {
+            let span = (
+                current_token.offset as usize,
+                current_token.lexeme.len() + current_token.offset as usize,
+            )
+                .into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::InvalidSyntax(format!(
+                    "Expected '=' after identifier, got {}",
+                    current_token.lexeme
+                )),
+            );
+            return Node::Error(err);
+        }
+
+        self.consume_next_token();
+        let value = self.parse_expression();
+
+        Node::Init(Init {
+            lineno,
+            token: init_token,
+            ident: Box::new(ident),
+            value: Box::new(value),
+        })
     }
 
     fn parse_declare_stmt(&mut self) -> Node {
-        todo!()
+        let lineno = self.lexer.lineno();
+        let declare_token = self.current_token.clone().unwrap();
+        let mut idents = Vec::new();
+
+        self.consume_next_token();
+
+        loop {
+            let current_token = self.current_token.as_ref().unwrap();
+
+            if current_token.ttype != TType::Id {
+                let span = (
+                    current_token.offset as usize,
+                    current_token.lexeme.len() + current_token.offset as usize,
+                )
+                    .into();
+                let err = Error::new(
+                    self.source(),
+                    span,
+                    ParseError::MissingIdent(format!(
+                        "Expected identifier in declare statement, got {}",
+                        current_token.lexeme
+                    )),
+                );
+                return Node::Error(err);
+            }
+
+            let ttype = current_token.ttype;
+            idents.push(self.create_node(&ttype));
+            self.consume_next_token();
+
+            let current_token = self.current_token.as_ref().unwrap();
+            match current_token.ttype {
+                TType::Comma => {
+                    self.consume_next_token();
+                    continue;
+                }
+                TType::Newline | TType::Eob => break,
+                _ => {
+                    let span = (
+                        current_token.offset as usize,
+                        current_token.lexeme.len() + current_token.offset as usize,
+                    )
+                        .into();
+                    let err = Error::new(
+                        self.source(),
+                        span,
+                        ParseError::InvalidSyntax(format!(
+                            "Expected ',' or newline in declare statement, got {}",
+                            current_token.lexeme
+                        )),
+                    );
+                    return Node::Error(err);
+                }
+            }
+        }
+
+        Node::Declare(Declare {
+            lineno,
+            token: declare_token,
+            idents,
+        })
     }
 
     fn parse_if_stmt(&mut self) -> Node {
-        todo!()
+        let lineno = self.lexer.lineno();
+        let if_token = self.current_token.clone().unwrap();
+
+        self.consume_next_token();
+
+        let predicate = self.parse_expression();
+
+        let current_token = self.current_token.as_ref().unwrap();
+        let block = match current_token.ttype {
+            TType::Lbrace => match self.parse_block_stmt() {
+                Ok(node) => node,
+                Err(err) => return Node::Error(err),
+            },
+            _ => {
+                let span = (
+                    current_token.offset as usize,
+                    current_token.lexeme.len() + current_token.offset as usize,
+                )
+                    .into();
+                let err = Error::new(
+                    self.source(),
+                    span,
+                    ParseError::InvalidSyntax(format!(
+                        "Expected '{{' after if condition, got {}",
+                        current_token.lexeme
+                    )),
+                );
+                return Node::Error(err);
+            }
+        };
+
+        // Check for else clause
+        let alt = match self.peek_token.as_ref().unwrap().ttype {
+            TType::Else => {
+                self.consume_next_token();
+                self.consume_next_token();
+
+                let current_token = self.current_token.as_ref().unwrap();
+                match current_token.ttype {
+                    TType::Lbrace => match self.parse_block_stmt() {
+                        Ok(node) => node,
+                        Err(err) => return Node::Error(err),
+                    },
+                    _ => {
+                        let span = (
+                            current_token.offset as usize,
+                            current_token.lexeme.len() + current_token.offset as usize,
+                        )
+                            .into();
+                        let err = Error::new(
+                            self.source(),
+                            span,
+                            ParseError::InvalidSyntax(format!(
+                                "Expected '{{' after else, got {}",
+                                current_token.lexeme
+                            )),
+                        );
+                        return Node::Error(err);
+                    }
+                }
+            }
+            _ => Node::Null(Null {
+                lineno: self.lexer.lineno(),
+                token: Token {
+                    lexeme: "".to_string(),
+                    ttype: TType::Null,
+                    offset: -1,
+                },
+            }),
+        };
+
+        Node::If(If {
+            lineno,
+            token: if_token,
+            predicate: Box::new(predicate),
+            block: Box::new(block),
+            alt: Box::new(alt),
+        })
     }
 
     fn parse_block_stmt(&mut self) -> Result<Node, Error> {
@@ -423,11 +656,203 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_call_expr(&mut self) -> Node {
-        todo!()
+        let lineno = self.lexer.lineno();
+        let current_token = self.current_token.as_ref().unwrap();
+
+        // First token should be an identifier (function name)
+        if current_token.ttype != TType::Id {
+            let span = (
+                current_token.offset as usize,
+                current_token.lexeme.len() + current_token.offset as usize,
+            )
+                .into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::InvalidSyntax(format!(
+                    "Expected function name, got {}",
+                    current_token.lexeme
+                )),
+            );
+            return Node::Error(err);
+        }
+
+        let ttype = current_token.ttype;
+        let func_name = self.create_node(&ttype);
+        self.consume_next_token();
+
+        // Next token should be '('
+        let current_token = self.current_token.as_ref().unwrap().clone();
+        if current_token.ttype != TType::Lparen {
+            let span = (
+                current_token.offset as usize,
+                current_token.lexeme.len() + current_token.offset as usize,
+            )
+                .into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::InvalidSyntax(format!(
+                    "Expected '(' after function name, got {}",
+                    current_token.lexeme
+                )),
+            );
+            return Node::Error(err);
+        }
+
+        self.consume_next_token();
+        let mut args = Vec::new();
+
+        // Parse argument list
+        loop {
+            let current_token = self.current_token.as_ref().unwrap();
+
+            if current_token.ttype == TType::Rparen {
+                break;
+            }
+
+            if !args.is_empty() {
+                if current_token.ttype != TType::Comma {
+                    let span = (
+                        current_token.offset as usize,
+                        current_token.lexeme.len() + current_token.offset as usize,
+                    )
+                        .into();
+                    let err = Error::new(
+                        self.source(),
+                        span,
+                        ParseError::InvalidSyntax(format!(
+                            "Expected ',' between arguments, got {}",
+                            current_token.lexeme
+                        )),
+                    );
+                    return Node::Error(err);
+                }
+                self.consume_next_token();
+            }
+
+            args.push(self.parse_expression());
+        }
+
+        self.consume_next_token(); // Consume ')'
+
+        Node::Call(Call {
+            lineno,
+            token: current_token.clone(),
+            func: Box::new(func_name),
+            args,
+        })
     }
 
     fn parse_func_literal(&mut self) -> Node {
-        todo!()
+        let lineno = self.lexer.lineno();
+        let current_token = self.current_token.as_ref().unwrap().clone();
+
+        // Next token should be '('
+        if current_token.ttype != TType::Lparen {
+            let span = (
+                current_token.offset as usize,
+                current_token.lexeme.len() + current_token.offset as usize,
+            )
+                .into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::InvalidSyntax(format!(
+                    "Expected '(' after function name, got {}",
+                    current_token.lexeme
+                )),
+            );
+            return Node::Error(err);
+        }
+
+        self.consume_next_token();
+        let mut params = Vec::new();
+
+        // Parse parameter list
+        loop {
+            let current_token = self.current_token.as_ref().unwrap().clone();
+
+            if current_token.ttype == TType::Rparen {
+                break;
+            }
+
+            if !params.is_empty() {
+                if current_token.ttype != TType::Comma {
+                    let span = (
+                        current_token.offset as usize,
+                        current_token.lexeme.len() + current_token.offset as usize,
+                    )
+                        .into();
+                    let err = Error::new(
+                        self.source(),
+                        span,
+                        ParseError::InvalidSyntax(format!(
+                            "Expected ',' between parameters, got {}",
+                            current_token.lexeme
+                        )),
+                    );
+                    return Node::Error(err);
+                }
+                self.consume_next_token();
+            }
+
+            let current_token = self.current_token.as_ref().unwrap().clone();
+            if current_token.ttype != TType::Id {
+                let span = (
+                    current_token.offset as usize,
+                    current_token.lexeme.len() + current_token.offset as usize,
+                )
+                    .into();
+                let err = Error::new(
+                    self.source(),
+                    span,
+                    ParseError::MissingIdent(format!(
+                        "Expected parameter name, got {}",
+                        current_token.lexeme
+                    )),
+                );
+                return Node::Error(err);
+            }
+
+            let ttype = current_token.ttype;
+            params.push(self.create_node(&ttype));
+            self.consume_next_token();
+        }
+
+        self.consume_next_token(); // Consume ')'
+
+        // Parse function body
+        let current_token = self.current_token.as_ref().unwrap().clone();
+        let body = match current_token.ttype {
+            TType::Lbrace => match self.parse_block_stmt() {
+                Ok(node) => node,
+                Err(err) => return Node::Error(err),
+            },
+            _ => {
+                let span = (
+                    current_token.offset as usize,
+                    current_token.lexeme.len() + current_token.offset as usize,
+                )
+                    .into();
+                let err = Error::new(
+                    self.source(),
+                    span,
+                    ParseError::InvalidSyntax(format!(
+                        "Expected '{{' for function body, got {}",
+                        current_token.lexeme
+                    )),
+                );
+                return Node::Error(err);
+            }
+        };
+
+        Node::Function(Function {
+            lineno,
+            token: current_token,
+            params,
+            body: Box::new(body),
+        })
     }
 
     fn parse_range_expr(&mut self) -> Node {
@@ -435,11 +860,83 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_func_smt(&mut self) -> Node {
-        todo!()
+        let lineno = self.lexer.lineno();
+        let define_token = self.current_token.clone().unwrap();
+
+        // Consume 'define' token
+        self.consume_next_token();
+
+        // Next token should be an identifier (function name)
+        let current_token = self.current_token.as_ref().unwrap().clone();
+        if current_token.ttype != TType::Id {
+            let span = (
+                current_token.offset as usize,
+                current_token.lexeme.len() + current_token.offset as usize,
+            )
+                .into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::MissingIdent(format!(
+                    "Expected function name after 'define', got {}",
+                    current_token.lexeme
+                )),
+            );
+            return Node::Error(err);
+        }
+
+        let ttype = current_token.ttype;
+        let func_name = self.create_node(&ttype);
+        self.consume_next_token();
+
+        let func_literal = self.parse_func_literal();
+
+        Node::FunctionExpr(FunctionExpr {
+            lineno,
+            token: define_token,
+            name: Box::new(func_name),
+            func: Box::new(func_literal),
+        })
     }
 
     fn parse_while_stmt(&mut self) -> Node {
-        todo!()
+        let lineno = self.lexer.lineno();
+        let while_token = self.current_token.clone().unwrap();
+
+        self.consume_next_token();
+
+        let predicate = self.parse_expression();
+
+        let current_token = self.current_token.as_ref().unwrap().clone();
+        let block = match current_token.ttype {
+            TType::Lbrace => match self.parse_block_stmt() {
+                Ok(node) => node,
+                Err(err) => return Node::Error(err),
+            },
+            _ => {
+                let span = (
+                    current_token.offset as usize,
+                    current_token.lexeme.len() + current_token.offset as usize,
+                )
+                    .into();
+                let err = Error::new(
+                    self.source(),
+                    span,
+                    ParseError::InvalidSyntax(format!(
+                        "Expected '{{' after while condition, got {}",
+                        current_token.lexeme
+                    )),
+                );
+                return Node::Error(err);
+            }
+        };
+
+        Node::While(While {
+            lineno,
+            token: while_token,
+            predicate: Box::new(predicate),
+            block: Box::new(block),
+        })
     }
 
     fn parse_for_stmt(&mut self) -> Node {
@@ -482,6 +979,8 @@ impl<'a> Parser<'a> {
             return Node::Error(f_id.err().unwrap());
         }
 
+        self.consume_next_token();
+
         if self.current_token.as_ref().unwrap().ttype != TType::In {
             let current_token = self.current_token.as_ref().unwrap();
             return Node::Error(Error::new(
@@ -521,9 +1020,31 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_for_iter_expr(&mut self) -> Result<Node, Error> {
-        let current_token = self.current_token.as_ref().unwrap();
+        let mut current_token = self.current_token.as_ref().unwrap();
+
+        if current_token.ttype != TType::Lparen
+            && self.peek_token.as_ref().unwrap().ttype != TType::Num
+        {
+            return Err(Error::new(
+                self.source(),
+                (
+                    current_token.offset as usize,
+                    current_token.lexeme.len() + current_token.offset as usize,
+                )
+                    .into(),
+                ParseError::InvalidSyntax("Expected (".to_string()),
+            ));
+        }
+
+        self.consume_next_token();
+        current_token = self.current_token.as_ref().unwrap();
+
         match current_token.ttype {
-            TType::Num => self.parse_num_range(),
+            TType::Num => {
+                let res = self.parse_num_range();
+                self.consume_next_token();
+                return res;
+            }
             _ => Err(Error::new(
                 self.source(),
                 (
@@ -586,6 +1107,7 @@ impl<'a> Parser<'a> {
             TType::Define => self.parse_func_smt(),
             TType::Init => self.parse_init_stmt(),
             TType::For => self.parse_for_stmt(),
+            TType::While => self.parse_while_stmt(),
             TType::Return => self.parse_return_stmt(),
             TType::Lbrace => match self.parse_block_stmt() {
                 Ok(node) => node,
@@ -608,6 +1130,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
             let node = self.parse_stmt(&ttype);
+            // println!("pushing node: {:#?}", node);
             match node {
                 Node::Error(err) => self.errors.push(err),
                 _ => program.statements.push(node),

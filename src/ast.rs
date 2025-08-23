@@ -27,6 +27,10 @@ pub enum Node {
     BinaryOp(BinaryOp),
     For(ForStmt),
     Range(Range),
+    Call(Call),
+    Declare(Declare),
+    Function(Function),
+    FunctionExpr(FunctionExpr),
 }
 
 #[derive(Debug, PartialEq)]
@@ -215,6 +219,30 @@ pub struct Range {
     pub lineno: i32,
     pub start: Box<Node>,
     pub end: Box<Node>,
+}
+
+#[derive(Debug)]
+pub struct Call {
+    pub lineno: i32,
+    pub token: Token,
+    pub func: Box<Node>,
+    pub args: Vec<Node>,
+}
+
+#[derive(Debug)]
+pub struct Function {
+    pub lineno: i32,
+    pub token: Token,
+    pub params: Vec<Node>,
+    pub body: Box<Node>,
+}
+
+#[derive(Debug)]
+pub struct FunctionExpr {
+    pub lineno: i32,
+    pub token: Token,
+    pub name: Box<Node>,
+    pub func: Box<Node>,
 }
 
 impl Null {

@@ -50,6 +50,7 @@ pub enum TType {
     If,
     Else,
     For,
+    While,
     Return,
     Null,
     Error,

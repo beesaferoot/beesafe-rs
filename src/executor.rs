@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use crate::allocator::{Allocator, Cell, Heap};
 use crate::ast::*;
 use crate::environment::Environment;
