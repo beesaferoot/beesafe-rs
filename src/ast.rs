@@ -225,7 +225,7 @@ pub struct Range {
 pub struct Call {
     pub lineno: i32,
     pub token: Token,
-    pub func: Box<Node>,
+    pub func: Option<Box<Node>>,
     pub args: Vec<Node>,
 }
 
@@ -303,6 +303,9 @@ impl BinaryOp {
             TType::Div => NodeType::Div,
             TType::Gt => NodeType::Gt,
             TType::Lt => NodeType::Lt,
+            TType::GtEq => NodeType::GtEq,
+            TType::LtEq => NodeType::LtEq,
+            TType::NotEq => NodeType::NotEq,
             _ => NodeType::Undefined,
         }
     }

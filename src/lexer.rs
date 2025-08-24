@@ -59,6 +59,7 @@ pub enum TType {
     Bang,
     In,
     Range,
+    Call,
 }
 
 impl Token {
@@ -376,6 +377,7 @@ impl Lexer {
             ("declare".to_string(), TType::Declare),
             ("define".to_string(), TType::Define),
             ("in".to_string(), TType::In),
+            ("while".to_string(), TType::While),
         ]);
         keywords
     }

@@ -114,7 +114,12 @@ impl<'a> Parser<'a> {
             ttype = self.peek_token.as_ref().unwrap().ttype;
             look_ahead = self.peek_token.as_ref().unwrap();
         }
-        let mut op = self.operator_stack.last().unwrap();
+        let default_token = &Token {
+            ttype: TType::Error,
+            lexeme: String::from(""),
+            offset: -1,
+        };
+        let mut op = self.operator_stack.last().unwrap_or(default_token);
         while op.ttype != TType::Error && op.ttype != TType::Null {
             let is_binary = self.resolve_binary_op(op.ttype);
             self.pop_operator(is_binary);
@@ -137,16 +142,47 @@ impl<'a> Parser<'a> {
                 self.operand_stack.push(node);
             }
             TType::Id => {
-                let node = self.create_node(&ttype);
-                self.operand_stack.push(node);
                 // Check if this is a function call
-                if let Some(peek) = self.peek_token.as_ref() {
-                    if peek.ttype == TType::Lparen {
-                        self.consume_next_token();
-                        let call_node = self.parse_call_expr();
-                        self.operand_stack.pop();
-                        self.operand_stack.push(call_node);
-                    }
+                if self.peek_token.as_ref().unwrap().ttype == TType::Lparen {
+                    let call_node = self.parse_call_expr();
+                    self.operand_stack.pop();
+                    self.operand_stack.push(call_node);
+                } else {
+                    let node = self.create_node(&ttype);
+                    self.operand_stack.push(node);
+                }
+            }
+            TType::Define => {
+                if self.peek_token.as_ref().unwrap().ttype != TType::Lparen {
+                    let span = (
+                        curr_token.offset as usize,
+                        curr_token.lexeme.len() + curr_token.offset as usize,
+                    )
+                        .into();
+                    let err = Error::new(
+                        self.source(),
+                        span,
+                        ParseError::InvalidSyntax(format!(
+                            "Expected '(' after 'define' keyword in a function expression, got {}",
+                            curr_token.lexeme
+                        )),
+                    );
+                    self.errors.push(err);
+                    return;
+                }
+
+                self.consume_next_token();
+                let node = self.parse_func_literal();
+                self.operand_stack.push(node);
+                if self.peek_token.as_ref().unwrap().ttype == TType::Lparen {
+                    self.consume_next_token();
+                    let call_node = self.parse_call_expr();
+                    self.operand_stack.push(call_node);
+                    self.push_operator(Token {
+                        lexeme: "()".to_string(),
+                        ttype: TType::Call,
+                        offset: -1,
+                    });
                 }
             }
             TType::Literal => {
@@ -234,6 +270,7 @@ impl<'a> Parser<'a> {
             TType::NotEq => true,
             TType::Eq => true,
             TType::Assign => true,
+            TType::Call => true,
             _ => false,
         }
     }
@@ -251,6 +288,7 @@ impl<'a> Parser<'a> {
             TType::NotEq => Precendence::NotEq(1),
             TType::Eq => Precendence::Eq(1),
             TType::Assign => Precendence::Assign(1),
+            TType::Call => Precendence::Call(5),
             _ => Precendence::Base(0),
         }
     }
@@ -258,8 +296,9 @@ impl<'a> Parser<'a> {
     fn push_operator(&mut self, op: Token) {
         let precedence = self.resolve_precedence(&op.ttype);
         let mut last_op = self.operator_stack.last().unwrap();
-        while self.resolve_precedence(&last_op.ttype) >= precedence {
-            self.pop_operator(self.resolve_binary_op(op.ttype));
+        while self.resolve_precedence(&last_op.ttype) >= precedence
+            && self.operator_stack.last().is_some()
+        {
             last_op = self.operator_stack.last().unwrap();
         }
         self.operator_stack.push(op);
@@ -277,6 +316,8 @@ impl<'a> Parser<'a> {
             let op = self.operator_stack.pop().unwrap();
             let node = self.parse_uniary_op(op.clone(), Box::new(operand_node));
             self.operand_stack.push(node);
+        } else {
+            self.operator_stack.pop();
         }
     }
 
@@ -363,6 +404,15 @@ impl<'a> Parser<'a> {
                 token: op_token,
                 right: Box::new(right_operand),
                 left: Box::new(left_operand),
+            }),
+            TType::Call => Node::Call(Call {
+                lineno: self.lexer.lineno(),
+                token: op_token,
+                func: Some(Box::new(left_operand)),
+                args: match right_operand {
+                    Node::Call(call) => call.args,
+                    _ => vec![],
+                },
             }),
             _ => Node::Error(Error {
                 src: self.source(),
@@ -524,6 +574,10 @@ impl<'a> Parser<'a> {
 
         let predicate = self.parse_expression();
 
+        if self.current_token.as_ref().unwrap().ttype == TType::Rparen {
+            self.consume_next_token();
+        }
+
         let current_token = self.current_token.as_ref().unwrap();
         let block = match current_token.ttype {
             TType::Lbrace => match self.parse_block_stmt() {
@@ -657,55 +711,45 @@ impl<'a> Parser<'a> {
 
     fn parse_call_expr(&mut self) -> Node {
         let lineno = self.lexer.lineno();
-        let current_token = self.current_token.as_ref().unwrap();
+        let mut current_token = self.current_token.as_ref().unwrap();
 
         // First token should be an identifier (function name)
-        if current_token.ttype != TType::Id {
-            let span = (
-                current_token.offset as usize,
-                current_token.lexeme.len() + current_token.offset as usize,
-            )
-                .into();
-            let err = Error::new(
-                self.source(),
-                span,
-                ParseError::InvalidSyntax(format!(
-                    "Expected function name, got {}",
-                    current_token.lexeme
-                )),
-            );
-            return Node::Error(err);
-        }
+        // if not assume it's an anonymous function call
+        let func_is_named = current_token.ttype == TType::Id
+            && self.peek_token.as_ref().unwrap().ttype == TType::Lparen;
 
         let ttype = current_token.ttype;
-        let func_name = self.create_node(&ttype);
-        self.consume_next_token();
+        let mut func_name: Option<Node> = None;
+        if func_is_named {
+            func_name = Some(self.create_node(&ttype));
+            self.consume_next_token();
 
-        // Next token should be '('
-        let current_token = self.current_token.as_ref().unwrap().clone();
-        if current_token.ttype != TType::Lparen {
-            let span = (
-                current_token.offset as usize,
-                current_token.lexeme.len() + current_token.offset as usize,
-            )
-                .into();
-            let err = Error::new(
-                self.source(),
-                span,
-                ParseError::InvalidSyntax(format!(
-                    "Expected '(' after function name, got {}",
-                    current_token.lexeme
-                )),
-            );
-            return Node::Error(err);
+            // Next token should be '('
+            current_token = self.current_token.as_ref().unwrap();
+            if current_token.ttype != TType::Lparen {
+                let span = (
+                    current_token.offset as usize,
+                    current_token.lexeme.len() + current_token.offset as usize,
+                )
+                    .into();
+                let err = Error::new(
+                    self.source(),
+                    span,
+                    ParseError::InvalidSyntax(format!(
+                        "Expected '(' after function name, got {}",
+                        current_token.lexeme
+                    )),
+                );
+                return Node::Error(err);
+            }
         }
-
         self.consume_next_token();
+
         let mut args = Vec::new();
 
         // Parse argument list
         loop {
-            let current_token = self.current_token.as_ref().unwrap();
+            current_token = self.current_token.as_ref().unwrap();
 
             if current_token.ttype == TType::Rparen {
                 break;
@@ -732,16 +776,23 @@ impl<'a> Parser<'a> {
             }
 
             args.push(self.parse_expression());
+            self.consume_next_token();
         }
 
-        self.consume_next_token(); // Consume ')'
-
-        Node::Call(Call {
-            lineno,
-            token: current_token.clone(),
-            func: Box::new(func_name),
-            args,
-        })
+        match func_name {
+            None => Node::Call(Call {
+                lineno,
+                token: current_token.clone(),
+                func: None,
+                args,
+            }),
+            Some(fname) => Node::Call(Call {
+                lineno,
+                token: current_token.clone(),
+                func: Some(Box::new(fname)),
+                args,
+            }),
+        }
     }
 
     fn parse_func_literal(&mut self) -> Node {
@@ -907,7 +958,13 @@ impl<'a> Parser<'a> {
 
         let predicate = self.parse_expression();
 
-        let current_token = self.current_token.as_ref().unwrap().clone();
+        let mut current_token = self.current_token.as_ref().unwrap().clone();
+
+        if current_token.ttype == TType::Rparen {
+            self.consume_next_token();
+            current_token = self.current_token.as_ref().unwrap().clone();
+        }
+
         let block = match current_token.ttype {
             TType::Lbrace => match self.parse_block_stmt() {
                 Ok(node) => node,

@@ -39,7 +39,7 @@ fn test_expression() {
 #[test]
 fn test_for_int_range_stmt() {
     let input = r#"
-    for i in 1..4 {}
+    for i in (1..4) {}
 "#;
     let mut lexer = lexer::Lexer::new(input);
     let mut parser = parser::Parser::new(&mut lexer);
@@ -304,6 +304,7 @@ fn test_function_calls_in_expressions() {
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 6);
+    parser.show_errors();
     assert!(!parser.has_errors());
 }
 
