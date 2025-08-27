@@ -88,8 +88,16 @@ impl<'a> Parser<'a> {
         self.expression();
         let node = self.operand_stack.pop().unwrap_or(Node::Error(Error {
             src: self.source(),
-            span: (0, 0).into(),
-            error_type: ParseError::PlaceHolder(format!("")),
+            span: (
+                self.current_token.as_ref().unwrap().offset as usize,
+                self.current_token.as_ref().unwrap().lexeme.len()
+                    + self.current_token.as_ref().unwrap().offset as usize,
+            )
+                .into(),
+            error_type: ParseError::InvalidSyntax(format!(
+                "Invalid expression: {}",
+                self.current_token.as_ref().unwrap().lexeme
+            )),
         }));
         node
     }
@@ -107,7 +115,7 @@ impl<'a> Parser<'a> {
         let mut ttype = look_ahead.ttype;
         while self.resolve_binary_op(ttype) {
             let op_token = look_ahead.clone();
-            self.push_operator(op_token);
+            self.push_operator(op_token, true);
             self.consume_next_token();
             self.consume_next_token();
             self.produce();
@@ -123,7 +131,11 @@ impl<'a> Parser<'a> {
         while op.ttype != TType::Error && op.ttype != TType::Null {
             let is_binary = self.resolve_binary_op(op.ttype);
             self.pop_operator(is_binary);
-            op = self.operator_stack.last().unwrap();
+            if self.operator_stack.last().is_some() {
+                op = self.operator_stack.last().unwrap();
+            } else {
+                break;
+            }
         }
         self.operator_stack.pop();
     }
@@ -178,7 +190,7 @@ impl<'a> Parser<'a> {
                     self.consume_next_token();
                     let call_node = self.parse_call_expr();
                     self.operand_stack.push(call_node);
-                    self.push_operator(Token {
+                    self.operator_stack.push(Token {
                         lexeme: "()".to_string(),
                         ttype: TType::Call,
                         offset: -1,
@@ -224,7 +236,7 @@ impl<'a> Parser<'a> {
             _ => {
                 if self.resolve_uniary_op(ttype) {
                     let token = curr_token.clone();
-                    self.push_operator(token);
+                    self.push_operator(token, false);
                     self.consume_next_token();
                     self.produce();
                     self.pop_operator(false);
@@ -252,7 +264,6 @@ impl<'a> Parser<'a> {
         match op_type {
             TType::Bang => true,
             TType::Minus => true,
-            TType::Plus => true,
             _ => false,
         }
     }
@@ -293,13 +304,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn push_operator(&mut self, op: Token) {
+    fn push_operator(&mut self, op: Token, is_binary: bool) {
         let precedence = self.resolve_precedence(&op.ttype);
-        let mut last_op = self.operator_stack.last().unwrap();
-        while self.resolve_precedence(&last_op.ttype) >= precedence
-            && self.operator_stack.last().is_some()
-        {
-            last_op = self.operator_stack.last().unwrap();
+
+        if self.operator_stack.last().is_none() {
+            self.operator_stack.push(op);
+            return;
+        }
+
+        while let Some(last_op) = self.operator_stack.last() {
+            if self.resolve_precedence(&last_op.ttype) >= precedence {
+                self.pop_operator(is_binary);
+            } else {
+                break;
+            }
         }
         self.operator_stack.push(op);
     }
