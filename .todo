@@ -2,7 +2,7 @@ Parser
 [+] Improve parse error output
 [-] Reach parity with C++ version
 [-] Complete relational/equality/assignment ops in parser
-[-] Support unary logical not '!'
+[+] Support unary logical not '!'
 [-] Implement range expressions (a..b) and ((a..b))
 [-] Parse index expressions and index assignment
 [-] Allow 'else if' chaining

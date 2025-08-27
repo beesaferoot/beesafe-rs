@@ -308,6 +308,22 @@ fn test_function_calls_in_expressions() {
     assert!(!parser.has_errors());
 }
 
+#[test]
+fn test_not_operator() {
+
+    let input = r#"
+        !true
+        !false
+        !(1 == 2)
+        !(1 < 2)
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert_eq!(program.statements.len(), 4);
+    assert!(!parser.has_errors());
+}
+
 fn verify_node_type(node: &Node, expected_type: &NodeType) {
     match node {
         Node::BinaryOp(op) => assert_eq!(op.ttype(), *expected_type),

@@ -381,7 +381,7 @@ impl<'a> Parser<'a> {
 
     fn parse_uniary_op(&mut self, op_token: Token, right_operand: Box<Node>) -> Node {
         match op_token.ttype {
-            TType::Minus | TType::Plus => Node::UniaryOp(UniaryOp {
+            TType::Minus | TType::Plus | TType::Bang => Node::UniaryOp(UniaryOp {
                 lineno: self.lexer.lineno(),
                 token: op_token,
                 right: right_operand,

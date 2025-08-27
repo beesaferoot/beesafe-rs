@@ -316,6 +316,7 @@ impl UniaryOp {
         match self.token.ttype {
             TType::Minus => NodeType::USub,
             TType::Plus => NodeType::Add,
+            TType::Bang => NodeType::Not,
             _ => NodeType::Undefined,
         }
     }
