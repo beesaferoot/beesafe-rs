@@ -66,6 +66,8 @@ pub enum ErrType {
     TypeError(String),
     #[error("Runtime Error: {0}")]
     RuntimeError(String),
+    #[error("Undefined Error: {0}")]
+    UndefinedError(String),
 }
 
 #[derive(Clone, Debug)]

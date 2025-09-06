@@ -200,7 +200,7 @@ impl<'l> Executor<'l> {
                 let obj = cell.as_ref().clone();
                 self.heap.allocate_cell(obj)
             }
-            None => self.emit_type_error(
+            None => self.emit_undefined_error(
                 format!("undefined identifier '{}'", id.value),
                 NodeParseInfo {
                     lineno: id.lineno,
@@ -598,7 +598,7 @@ impl<'l> Executor<'l> {
     }
 
     fn emit_type_error(&mut self, msg: String, parse_info: NodeParseInfo) -> Cell<Object> {
-        let mut err_type = ErrType::TypeError("default error".to_owned());
+        let mut err_type = ErrType::TypeError("Unknown type error".to_owned());
 
         let error_msg = match parse_info.token.ttype {
             TType::Num => {
@@ -648,6 +648,23 @@ impl<'l> Executor<'l> {
                 )
                     .into(),
             })),
+        }))
+    }
+
+    fn emit_undefined_error(&mut self, msg: String, parse_info: NodeParseInfo) -> Cell<Object> {
+        let offset = parse_info.token.offset;
+        self.heap.allocate_cell(Object::Error(ErrorObj {
+            type_error: Some(TypeError::PlaceHolder(ErrInfo {
+                err_type: ErrType::UndefinedError("this identifier may have not been declared".to_string()),
+                msg,
+                src: self.parser.source(),
+                span: (
+                    offset as usize,
+                    parse_info.token.lexeme.len() + offset as usize,
+                )
+                    .into(),
+            })),
+            run_time_error: None,
         }))
     }
 }
