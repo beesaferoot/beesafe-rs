@@ -12,9 +12,11 @@ fn test_add_expression_eval() {
     let program = parser.parse_program();
     let env = Box::new(environment::Environment::new());
 
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut exec = executor::Executor::new(env.clone(), &parser);
 
-    let result = match exec.visit_expr(&program.statements[0], None).as_ref() {
+    let mut global_scope = env.clone();
+
+    let result = match exec.visit_expr(&program.statements[0], global_scope.as_mut()).as_ref() {
         Object::Number(num) => Some(*num),
         _ => None,
     };
@@ -176,5 +178,27 @@ fn test_function_define_and_call() {
     match results.last().unwrap().as_ref() {
         Object::Number(n) => assert_eq!(*n, 5),
         other => panic!("expected 5, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_function_expression_and_call() {
+    let input = r#"
+        init a = define(){
+            return "flower"
+        }()
+        a
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert!(!parser.has_errors());
+
+    let env = Box::new(environment::Environment::new());
+    let mut exec = executor::Executor::new(env, &parser);
+    let results = exec.visit_program(&program);
+    match results.last().unwrap().as_ref() {
+        Object::String(s) => assert_eq!(*s, "flower"),
+        other => panic!("expected 'flower', got {:?}", other),
     }
 }

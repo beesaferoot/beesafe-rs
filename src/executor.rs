@@ -23,15 +23,14 @@ impl<'l> Executor<'l> {
 
     pub fn visit_program(&mut self, program: &Program) -> Vec<Cell<Object>> {
         let mut result = Vec::new();
-
+        let mut global_scope = self.global_env.clone();
         for stmt in &program.statements {
-            let global_scope = self.global_env.clone();
-            result.push(self.visit_expr(stmt, Some(global_scope.as_ref())));
+            result.push(self.visit_expr(stmt, global_scope.as_mut()));
         }
         result
     }
 
-    pub fn visit_expr(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_expr(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         match node {
             Node::BinaryOp(op) => match op.ttype() {
                 NodeType::Add => self.visit_add(node, env),
@@ -108,32 +107,33 @@ impl<'l> Executor<'l> {
             Node::While(w) => self.visit_while(w, env),
             Node::For(forstmt) => self.visit_for(forstmt, env),
             Node::Function(func) => self.visit_func_anon(func),
-            Node::FunctionExpr(func) => self.visit_func_expr(func),
+            Node::FunctionExpr(func) => self.visit_func_expr(func, env),
             Node::Call(func_call) => {
-                let parent_scope = match env {
-                    Some(e) => &Box::new(e),
-                    None => self.global_env.as_ref(),
-                };
-                let boxed_parent_scope = Box::new(parent_scope.clone());
-                let scope = Environment::new_with_prev(&boxed_parent_scope);
-                return self.visit_func_call(&scope, func_call);
+                let parent_scope = env.clone();
+                let boxed_parent_scope = Box::new(parent_scope);
+                let mut scope = Environment::new_with_prev(&boxed_parent_scope);
+                return self.visit_func_call(&mut scope, func_call);
             }
             _ => todo!(),
         }
     }
 
-    fn visit_block(&mut self, block: &Block, env: Option<&Environment>) -> Cell<Object> {
-        let mut last: Option<Cell<Object>> = None;
+    fn visit_block(&mut self, block: &Block, env: &mut Environment) -> Cell<Object> {
         for stmt in &block.statements {
-            last = Some(self.visit_expr(stmt, env));
+            match stmt.as_ref() {
+                Node::Return(ret) => {
+                    let val = self.visit_expr(&ret.value, env);
+                    return val;
+                }
+                _ => {
+                    let _ = self.visit_expr(stmt, env);
+                }
+            }
         }
-        match last {
-            Some(cell) => cell,
-            None => self.heap.allocate_cell(Object::Null),
-        }
+        self.heap.allocate_cell(Object::Null)
     }
 
-    fn visit_for(&mut self, forstmt: &ForStmt, env: Option<&Environment>) -> Cell<Object> {
+    fn visit_for(&mut self, forstmt: &ForStmt, env: &mut Environment) -> Cell<Object> {
         let iter_cell = self.visit_expr(&forstmt.iter, env);
         let iter_obj = iter_cell.as_ref();
         let mut iterator = match iter_obj.get_iterator() {
@@ -178,23 +178,22 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Null)
     }
 
-    fn visit_init(&mut self, init: &Init, env: Option<&Environment>) -> Cell<Object> {
+    fn visit_init(&mut self, init: &Init, env: &mut Environment) -> Cell<Object> {
         let value_cell = self.visit_expr(&init.value, env);
         let name = match *init.ident {
             Node::Ident(ref id) => id.value.clone(),
             _ => String::from(""),
         };
+        let  scope = env;
+
         if name.len() > 0 {
-            self.global_env.add(&name, value_cell.clone());
+            scope.add(&name, value_cell.clone());
         }
         value_cell
     }
 
-    fn visit_ident(&mut self, id: &Ident, env: Option<&Environment>) -> Cell<Object> {
-        let scope = match env {
-            Some(e) => e,
-            None => &self.global_env,
-        };
+    fn visit_ident(&mut self, id: &Ident, env: &mut Environment) -> Cell<Object> {
+        let scope = env;
 
         match scope.get(&id.value) {
             Some(cell) => {
@@ -211,12 +210,12 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_func_expr(&mut self, func: &FunctionExpr) -> Cell<Object> {
+    fn visit_func_expr(&mut self, func: &FunctionExpr, env: &mut Environment) -> Cell<Object> {
         let f_obj = self
             .heap
             .allocate_cell(Object::Function(FunctionType::Expr(func.clone())));
         match func.name.as_ref() {
-            Node::Ident(id) => self.global_env.add(&id.value, f_obj.clone()),
+            Node::Ident(id) => env.add(&id.value, f_obj.clone()),
             _ => (),
         }
         f_obj
@@ -227,24 +226,82 @@ impl<'l> Executor<'l> {
             .allocate_cell(Object::Function(FunctionType::Decl(func.clone())))
     }
 
-    fn visit_func_call(&mut self, scope: &Environment, func_call: &Call) -> Cell<Object> {
+    fn visit_func_call(&mut self, scope: &mut Environment, func_call: &Call) -> Cell<Object> {
         if scope.is_recursion_limit_exceded() {
             return self.emit_recursion_limit_reached_error(NodeParseInfo {
                 lineno: func_call.lineno,
                 token: func_call.token.clone(),
             });
         }
-        let mut call_args: Vec<Cell<Object>> = vec![];
-        // Need to handle two cases of func expression i.e
-        // 1. define(x){ x + 2}(2)
-        // 2. add(2, 2*4)
-        // we should tie the function to the call i.e either the name of the function
-        // or the function object itself in case of func expression
-        // resolve
-        unimplemented!()
+
+        
+        let callee_node = match func_call.func {
+            Some(ref node) => node.as_ref(),
+            None => {
+                return self.emit_type_error(
+                    "invalid function call".to_string(),
+                    NodeParseInfo { lineno: func_call.lineno, token: func_call.token.clone() },
+                )
+            }
+        };
+
+        let callee_cell = self.visit_expr(callee_node, scope);
+
+        let mut arg_cells: Vec<Cell<Object>> = Vec::with_capacity(func_call.args.len());
+        for arg in &func_call.args {
+            arg_cells.push(self.visit_expr(arg, scope));
+        }
+
+        let callee_obj = callee_cell.as_ref().clone();
+        match callee_obj {
+            Object::Function(ft) => {
+                let (param_names, body_owned): (Vec<String>, Node) = match ft {
+                    FunctionType::Decl(f) => {
+                        let mut names = Vec::new();
+                        for p in &f.params {
+                            if let Node::Ident(ref id) = p { names.push(id.value.clone()); }
+                        }
+                        (names, (*f.body).clone())
+                    }
+                    FunctionType::Expr(fe) => {
+                        match fe.func.as_ref() {
+                            Node::Function(f) => {
+                                let mut names = Vec::new();
+                                for p in &f.params {
+                                    if let Node::Ident(ref id) = p { names.push(id.value.clone()); }
+                                }
+                                (names, (*f.body).clone())
+                            }
+                            other => (Vec::new(), other.clone()),
+                        }
+                    }
+                };
+
+                if param_names.len() != arg_cells.len() {
+                    return self.emit_type_error(
+                        "arity mismatch".to_string(),
+                        NodeParseInfo { lineno: func_call.lineno, token: func_call.token.clone() },
+                    );
+                }
+
+                for (i, name) in param_names.iter().enumerate() {
+                    scope.add(name, arg_cells[i].clone());
+                }
+
+                
+                let result = self.visit_expr(&body_owned, scope);
+                return result;
+            }
+            _ => {
+                return self.emit_type_error(
+                    "object is not callable".to_string(),
+                    NodeParseInfo { lineno: func_call.lineno, token: func_call.token.clone() },
+                );
+            }
+        }
     }
 
-    fn visit_if(&mut self, ifs: &If, env: Option<&Environment>) -> Cell<Object> {
+    fn visit_if(&mut self, ifs: &If, env: &mut Environment) -> Cell<Object> {
         let pred = self.visit_expr(&ifs.predicate, env);
         match pred.as_ref() {
             Object::Bool(true) => self.visit_expr(&ifs.block, env),
@@ -259,7 +316,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_while(&mut self, w: &While, env: Option<&Environment>) -> Cell<Object> {
+    fn visit_while(&mut self, w: &While, env: &mut Environment) -> Cell<Object> {
         loop {
             let pred = self.visit_expr(&w.predicate, env);
             match pred.as_ref() {
@@ -281,7 +338,7 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Null)
     }
 
-    pub fn visit_lt(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_lt(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
@@ -300,7 +357,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_lte(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_lte(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
@@ -319,7 +376,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_gt(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_gt(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
@@ -338,7 +395,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_gte(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_gte(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
@@ -357,7 +414,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_eq(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_eq(&mut self, node: &Node, env:& mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
@@ -374,7 +431,7 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Bool(res))
     }
 
-    pub fn visit_neq(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_neq(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
@@ -391,7 +448,7 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Bool(res))
     }
 
-    pub fn visit_add(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_add(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_mul should only be called with Node::BinaryOp"),
@@ -421,7 +478,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_sub(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_sub(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_sub should only be called with Node::BinaryOp"),
@@ -450,7 +507,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_mul(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_mul(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_mul should only be called with Node::BinaryOp"),
@@ -480,7 +537,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_div(&mut self, node: &Node, env: Option<&Environment>) -> Cell<Object> {
+    pub fn visit_div(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_div should only be called with Node::BinaryOp"),
@@ -520,7 +577,24 @@ impl<'l> Executor<'l> {
     }
 
     fn emit_recursion_limit_reached_error(&mut self, parse_info: NodeParseInfo) -> Cell<Object> {
-        unimplemented!()
+        let msg = format!(
+            "Runtime Error at line {}: Recursion limit reached\n",
+            parse_info.lineno
+        );
+        let offset = parse_info.token.offset;
+        self.heap.allocate_cell(Object::Error(ErrorObj {
+            type_error: None,
+            run_time_error: Some(RuntimeError::RecursionLimitReached(ErrInfo {
+                err_type: ErrType::RuntimeError("Recursion limit reached".to_owned()),
+                msg,
+                src: self.parser.source(),
+                span: (
+                    offset as usize,
+                    parse_info.token.lexeme.len() + offset as usize,
+                )
+                    .into(),
+            })),
+        }))
     }
 
     fn emit_type_error(&mut self, msg: String, parse_info: NodeParseInfo) -> Cell<Object> {

@@ -71,6 +71,7 @@ pub enum ErrType {
 #[derive(Clone, Debug)]
 pub enum RuntimeError {
     DivisionByZero(ErrInfo),
+    RecursionLimitReached(ErrInfo),
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +113,10 @@ impl ErrorObj {
                     "{:?}",
                     miette::Report::new(info.clone()).with_source_code(info.src)
                 ),
+                RuntimeError::RecursionLimitReached(info) => eprint!(
+                    "{:?}",
+                    miette::Report::new(info.clone()).with_source_code(info.src)
+                ),
             },
             None => (),
         }
@@ -120,19 +125,19 @@ impl ErrorObj {
 }
 
 impl NumberObj {
-    pub fn visit<'e>(&self, env: &'e Box<Environment>) -> i32 {
+    pub fn visit<'e>(&self, _env: &'e Box<Environment>) -> i32 {
         self.value
     }
 }
 
 impl StringObj {
-    pub fn visit<'e>(&self, env: &'e Box<Environment>) -> String {
+    pub fn visit<'e>(&self, _env: &'e Box<Environment>) -> String {
         self.literal.clone()
     }
 }
 
 impl BoolObj {
-    pub fn visit<'e>(&self, env: &'e Box<Environment>) -> bool {
+    pub fn visit<'e>(&self, _env: &'e Box<Environment>) -> bool {
         self.value
     }
 }
