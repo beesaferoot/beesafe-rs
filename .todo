@@ -3,25 +3,26 @@ Parser
 [-] Reach parity with C++ version
 [-] Complete relational/equality/assignment ops in parser
 [+] Support unary logical not '!'
-[-] Implement range expressions (a..b) and ((a..b))
+[+] Implement range expressions (a..b) and ((a..b))
 [-] Parse index expressions and index assignment
 [-] Allow 'else if' chaining
 
 Lexer
-[-] Lex and ignore '//' single-line comments
-[-] Add '[' and ']' tokens
+[+] Lex and ignore '//' single-line comments
+[+] Add '[' and ']' tokens
 [-] Harden string literal scanning
 
 Executor
 [+] Implement initial source executor (aka tree-walk interpreter)
-[-] Evaluate comparisons (<, <=, >, >=, ==, !=)
-[-] Implement identifiers, declare/init/assign semantics with Environment
-[-] Implement block scoping for blocks/functions
-[-] Execute if/else and while
-[-] Execute for-range iteration and loop variable binding
-[-] Function definition, calls, and returns
-[-] Evaluate string literals and unary/binary +/- on numbers
-[-] Evaluate range to iterator
+[+] Evaluate comparisons (<, <=, >, >=, ==, !=)
+[+] Implement identifiers, declare/init/assign semantics with Environment
+[+] Implement block scoping for blocks/functions
+[+] Execute if/else and while
+[+] Execute for-range iteration and loop variable binding
+[+] Function definition, calls, and returns
+[+] Evaluate string literals and unary/binary +/- on numbers
+[+] Evaluate range to iterator
+
 
 GC
 [-] Attempt to implement a mark-sweep GC
