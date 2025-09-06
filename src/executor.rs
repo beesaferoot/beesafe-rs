@@ -99,8 +99,13 @@ impl<'l> Executor<'l> {
                     .allocate_cell(Object::Range(crate::symbols::RangeObj { start, end }))
             }
             Node::StringLiteral(s) => self.heap.allocate_cell(Object::String(s.literal.clone())),
-            Node::Block(block) => self.visit_block(block, env),
-            Node::Declare(decl) => self.visit_declare(decl),
+            Node::Block(block) =>  {
+                let parent_scope = env.clone();
+                let boxed_parent_scope = Box::new(parent_scope);
+                let mut scope = Environment::new_with_prev(&boxed_parent_scope);
+                return self.visit_block(&block, &mut scope);
+            }
+            Node::Declare(decl) => self.visit_declare(decl, env),
             Node::Init(init) => self.visit_init(init, env),
             Node::Ident(id) => self.visit_ident(id, env),
             Node::If(ifs) => self.visit_if(ifs, env),
@@ -158,7 +163,7 @@ impl<'l> Executor<'l> {
             if let Some(item) = iterator.next() {
                 let cell = self.heap.allocate_cell(item);
                 if ident_name.len() > 0 {
-                    self.global_env.add(&ident_name, cell);
+                    env.add(&ident_name, cell);
                 }
                 let _ = self.visit_expr(&forstmt.block, env);
             } else {
@@ -168,11 +173,10 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Null)
     }
 
-    fn visit_declare(&mut self, decl: &Declare) -> Cell<Object> {
+    fn visit_declare(&mut self, decl: &Declare, env: &mut Environment) -> Cell<Object> {
         for ident in &decl.idents {
             if let Node::Ident(id) = ident {
-                self.global_env
-                    .add(&id.value, self.heap.allocate_cell(Object::Null));
+                env.add(&id.value, self.heap.allocate_cell(Object::Null));
             }
         }
         self.heap.allocate_cell(Object::Null)
