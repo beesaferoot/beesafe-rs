@@ -59,6 +59,8 @@ pub enum TType {
     Bang,
     In,
     Range,
+    Lbracket,
+    Rbracket,
     Call,
 }
 
@@ -167,10 +169,21 @@ impl Lexer {
                 ttype: TType::Asterisk,
                 offset: self.read_position - 1,
             },
-            '/' => Token {
-                lexeme: ch.to_string(),
-                ttype: TType::Div,
-                offset: self.read_position - 1,
+            '/' => {
+                let offset = self.read_position - 1;
+                if self.peek_char() == '/' {
+                    self.read_char();
+                    let mut next = self.read_char();
+                    while next != '\n' && next != '\0' {
+                        next = self.read_char();
+                    }
+                    if next == '\n' {
+                        self.line_no += 1;
+                        return Token::from("\n", TType::Newline, self.read_position - 1);
+                    }
+                    return Token::from("\0", TType::Eob, self.read_position - 1);
+                }
+                Token::from_char(ch, TType::Div, offset)
             },
             '=' => {
                 let offset = self.read_position - 1;
@@ -208,6 +221,16 @@ impl Lexer {
             ')' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Rparen,
+                offset: self.read_position - 1,
+            },
+            '[' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Lbracket,
+                offset: self.read_position - 1,
+            },
+            ']' => Token {
+                lexeme: ch.to_string(),
+                ttype: TType::Rbracket,
                 offset: self.read_position - 1,
             },
             '<' => {

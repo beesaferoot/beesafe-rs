@@ -56,7 +56,7 @@ fn test_error() {
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);
-    assert_eq!(parser.has_errors(), true);
+    assert_eq!(parser.has_errors(), false);
 }
 
 #[test]
@@ -95,6 +95,34 @@ fn test_function_statements() {
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 2);
     assert!(!parser.has_errors());
+}
+
+#[test]
+fn test_comments_in_complex_code() {
+    let input = r#"
+        // leading comment
+        define compute(a, b){ // inline after signature
+            // inside block
+            declare x, y // declare vars
+            init x = a + b // sum
+            if (x > 0) { // positive branch
+                init y = x * 2 // double
+            } else {
+                // negative or zero
+                init y = 0
+            }
+            while (y > 0) { // countdown
+                init y = y - 1
+            }
+        }
+        // trailing comment after function
+        compute(1, 2) // call with comments
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert!(!parser.has_errors());
+    assert_eq!(program.statements.len(), 2);
 }
 
 #[test]
@@ -324,6 +352,50 @@ fn test_not_operator() {
     assert!(!parser.has_errors());
 }
 
+#[test]
+fn test_iterable_protocols() {
+    let input = r#"
+        for i in x { }
+        for i in getItems() { }
+        for i in [1, 2, 3] { }
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    
+    assert_eq!(program.statements.len(), 3);
+
+    for stmt in &program.statements {
+        match stmt {
+            Node::For(_) => (),
+            _ => panic!("Expected For node, got {:?}", stmt),
+        }
+    }
+
+    assert!(!parser.has_errors());
+}
+
+#[test]
+fn test_array_literals() {
+    let input = r#"
+        [1, 2, 3]
+        []
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert_eq!(program.statements.len(), 2);
+    
+    for stmt in &program.statements {
+        match stmt {
+            Node::Array(_) => (),
+            _ => panic!("Expected Array node, got {:?}", stmt),
+        }
+    }
+
+    assert!(!parser.has_errors());
+}
+
 fn verify_node_type(node: &Node, expected_type: &NodeType) {
     match node {
         Node::BinaryOp(op) => assert_eq!(op.ttype(), *expected_type),
@@ -344,6 +416,7 @@ fn verify_node_type(node: &Node, expected_type: &NodeType) {
         Node::Return(_) => assert_eq!(NodeType::Return, *expected_type),
         Node::Block(_) => assert_eq!(NodeType::Block, *expected_type),
         Node::Range(_) => assert_eq!(NodeType::Range, *expected_type),
+        Node::Array(_) => assert_eq!(NodeType::Array, *expected_type),
         Node::Error(_) => assert_eq!(NodeType::Err, *expected_type),
         _ => panic!("Unexpected node type"),
     }

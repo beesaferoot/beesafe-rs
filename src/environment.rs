@@ -1,31 +1,31 @@
-use std::collections::HashMap;
-use crate::symbols::Object;
 use crate::allocator::Cell;
+use crate::symbols::Object;
+use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct Environment<'a> {
     prev: Option<&'a Box<Environment<'a>>>,
     depth: i32,
     table: HashMap<String, Cell<Object>>,
-    recursion_limit: i32
+    recursion_limit: i32,
 }
 
 impl<'a> Environment<'a> {
-    
     pub fn new() -> Self {
-        Self { 
-            prev: None, 
-            depth: 1, 
-            table:  HashMap::from([]), 
-            recursion_limit: 50 
+        Self {
+            prev: None,
+            depth: 1,
+            table: HashMap::from([]),
+            recursion_limit: 50,
         }
     }
 
     pub fn new_with_prev(prev: &'a Box<Environment>) -> Self {
-        Self { 
-            prev: Some(prev), 
-            depth: prev.depth + 1, 
-            table:  HashMap::from([]), 
-            recursion_limit: 50 
+        Self {
+            prev: Some(prev),
+            depth: prev.depth + 1,
+            table: HashMap::from([]),
+            recursion_limit: 50,
         }
     }
 
@@ -48,7 +48,6 @@ impl<'a> Environment<'a> {
         }
 
         ident_value
-        
     }
 
     pub fn prev(&self) -> Option<&Box<Environment>> {
@@ -62,6 +61,4 @@ impl<'a> Environment<'a> {
     pub fn depth(&self) -> i32 {
         self.depth
     }
-
 }
-

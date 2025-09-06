@@ -102,6 +102,9 @@ impl<'a> Parser<'a> {
         node
     }
 
+
+    
+
     // expr -> produce
     fn expression(&mut self) {
         let null_token = Token {
@@ -147,7 +150,13 @@ impl<'a> Parser<'a> {
         match ttype {
             TType::Num => {
                 let node = self.create_node(&ttype);
-                self.operand_stack.push(node)
+                if self.peek_token.as_ref().unwrap().ttype == TType::Range {
+                    let range_node = self.parse_num_range().unwrap();
+                    self.operand_stack.pop();
+                    self.operand_stack.push(range_node);
+                } else {
+                    self.operand_stack.push(node);
+                }
             }
             TType::Null => {
                 let node = self.create_node(&ttype);
@@ -208,6 +217,10 @@ impl<'a> Parser<'a> {
             TType::True => {
                 let node = self.parse_bool();
                 self.operand_stack.push(node);
+            }
+            TType::Lbracket => {
+                let array_node = self.parse_array_literal();
+                self.operand_stack.push(array_node);
             }
             TType::Lparen => {
                 self.consume_next_token();
@@ -282,6 +295,7 @@ impl<'a> Parser<'a> {
             TType::Eq => true,
             TType::Assign => true,
             TType::Call => true,
+            TType::Range => true,
             _ => false,
         }
     }
@@ -300,6 +314,7 @@ impl<'a> Parser<'a> {
             TType::Eq => Precendence::Eq(1),
             TType::Assign => Precendence::Assign(1),
             TType::Call => Precendence::Call(5),
+            TType::Range => Precendence::Range(0),
             _ => Precendence::Base(0),
         }
     }
@@ -417,7 +432,8 @@ impl<'a> Parser<'a> {
             | TType::Gt
             | TType::GtEq
             | TType::Eq
-            | TType::NotEq => Node::BinaryOp(BinaryOp {
+            | TType::NotEq
+            | TType::Range => Node::BinaryOp(BinaryOp {
                 lineno: self.lexer.lineno(),
                 token: op_token,
                 right: Box::new(right_operand),
@@ -612,7 +628,7 @@ impl<'a> Parser<'a> {
                     self.source(),
                     span,
                     ParseError::InvalidSyntax(format!(
-                        "Expected '{{' after if condition, got {}",
+                        "Expected '{{' to start block after if condition, got '{}'",
                         current_token.lexeme
                     )),
                 );
@@ -642,7 +658,7 @@ impl<'a> Parser<'a> {
                             self.source(),
                             span,
                             ParseError::InvalidSyntax(format!(
-                                "Expected '{{' after else, got {}",
+                                "Expected '{{' to start else block, got '{}'",
                                 current_token.lexeme
                             )),
                         );
@@ -924,8 +940,49 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_range_expr(&mut self) -> Node {
-        todo!()
+
+    fn parse_array_literal(&mut self) -> Node {
+        let lineno = self.lexer.lineno();
+        let mut elements = Vec::new();
+
+        self.consume_next_token();
+
+        loop {
+            let current_token = self.current_token.as_ref().unwrap();
+
+            if current_token.ttype == TType::Rbracket {
+                break;
+            }
+
+            if !elements.is_empty() {
+                if current_token.ttype != TType::Comma {
+                    let span = (
+                        current_token.offset as usize,
+                        current_token.lexeme.len() + current_token.offset as usize,
+                    ).into();
+                    let err = Error::new(
+                        self.source(),
+                        span,
+                        ParseError::InvalidSyntax(format!(
+                            "Expected ',' between array elements, got {}",
+                            current_token.lexeme
+                        )),
+                    );
+                    return Node::Error(err);
+                }
+                self.consume_next_token();
+            }
+
+            elements.push(self.parse_expression());
+            self.consume_next_token();
+        }
+
+        self.consume_next_token();
+
+        Node::Array(Array {
+            lineno,
+            elements,
+        })
     }
 
     fn parse_func_smt(&mut self) -> Node {
@@ -1071,13 +1128,20 @@ impl<'a> Parser<'a> {
 
         self.consume_next_token();
 
-        f_iter = self.parse_for_iter_expr();
+        let iter_node =  self.parse_expression();
+
+        f_iter = match iter_node {
+            Node::Error(err) => Err(err),
+            _ => Ok(iter_node),
+        };
 
         if f_iter.is_err() {
             return Node::Error(f_iter.err().unwrap());
         }
 
-        self.consume_next_token();
+        if self.current_token.as_ref().unwrap_or(&Token::from("", TType::Eob, 0)).ttype != TType::Lbrace {
+            self.consume_next_token();
+        }
 
         f_block = self.parse_block_stmt();
 
@@ -1094,43 +1158,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_for_iter_expr(&mut self) -> Result<Node, Error> {
-        let mut current_token = self.current_token.as_ref().unwrap();
-
-        if current_token.ttype != TType::Lparen
-            && self.peek_token.as_ref().unwrap().ttype != TType::Num
-        {
-            return Err(Error::new(
-                self.source(),
-                (
-                    current_token.offset as usize,
-                    current_token.lexeme.len() + current_token.offset as usize,
-                )
-                    .into(),
-                ParseError::InvalidSyntax("Expected (".to_string()),
-            ));
-        }
-
-        self.consume_next_token();
-        current_token = self.current_token.as_ref().unwrap();
-
-        match current_token.ttype {
-            TType::Num => {
-                let res = self.parse_num_range();
-                self.consume_next_token();
-                return res;
-            }
-            _ => Err(Error::new(
-                self.source(),
-                (
-                    current_token.offset as usize,
-                    current_token.lexeme.len() + current_token.offset as usize,
-                )
-                    .into(),
-                ParseError::InvalidSyntax("".to_string()),
-            )),
-        }
-    }
 
     fn parse_num_range(&mut self) -> Result<Node, Error> {
         let lineno = self.lexer.lineno();
@@ -1218,3 +1245,4 @@ impl<'a> Parser<'a> {
         program
     }
 }
+

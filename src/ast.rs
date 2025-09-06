@@ -9,7 +9,7 @@ use crate::parser::ParseError;
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Node {
     Block(Block),
     Return(Return),
@@ -27,6 +27,7 @@ pub enum Node {
     BinaryOp(BinaryOp),
     For(ForStmt),
     Range(Range),
+    Array(Array),
     Call(Call),
     Declare(Declare),
     Function(Function),
@@ -64,6 +65,7 @@ pub enum NodeType {
     FunctionExpr,
     Init,
     Range,
+    Array,
     Declare,
     For,
     Call,
@@ -89,6 +91,7 @@ pub enum Precendence {
     Call(i8),
     Assign(i8),
     Minus(i8),
+    Range(i8),
 }
 
 enum Association {
@@ -96,53 +99,53 @@ enum Association {
     Right = 1,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub lineno: i32,
     pub token: Token,
     pub statements: Vec<Box<Node>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Return {
     pub lineno: i32,
     pub token: Token,
     pub value: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Program {
     pub statements: Vec<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Null {
     pub lineno: i32,
     pub token: Token,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ident {
     pub lineno: i32,
     pub token: Token,
     pub value: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringLiteral {
     pub lineno: i32,
     pub token: Token,
     pub literal: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Number {
     pub lineno: i32,
     pub token: Token,
     pub value: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryOp {
     pub lineno: i32,
     pub token: Token,
@@ -150,14 +153,14 @@ pub struct BinaryOp {
     pub left: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UniaryOp {
     pub lineno: i32,
     pub token: Token,
     pub right: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Init {
     pub lineno: i32,
     pub token: Token,
@@ -165,14 +168,14 @@ pub struct Init {
     pub value: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Declare {
     pub lineno: i32,
     pub token: Token,
     pub idents: Vec<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct While {
     pub lineno: i32,
     pub token: Token,
@@ -180,7 +183,7 @@ pub struct While {
     pub block: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct If {
     pub lineno: i32,
     pub token: Token,
@@ -189,7 +192,7 @@ pub struct If {
     pub block: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Boolean {
     pub lineno: i32,
     pub token: Token,
@@ -205,7 +208,7 @@ pub struct Error {
     pub error_type: ParseError,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ForStmt {
     pub lineno: i32,
     pub token: Token,
@@ -214,14 +217,20 @@ pub struct ForStmt {
     pub block: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Range {
     pub lineno: i32,
     pub start: Box<Node>,
     pub end: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct Array {
+    pub lineno: i32,
+    pub elements: Vec<Node>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Call {
     pub lineno: i32,
     pub token: Token,
@@ -229,7 +238,7 @@ pub struct Call {
     pub args: Vec<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub lineno: i32,
     pub token: Token,
@@ -237,7 +246,7 @@ pub struct Function {
     pub body: Box<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionExpr {
     pub lineno: i32,
     pub token: Token,
@@ -345,6 +354,16 @@ impl Range {
 
     pub fn ttype(&self) -> NodeType {
         NodeType::Range
+    }
+}
+
+impl Array {
+    pub fn new(lineno: i32, elements: Vec<Node>) -> Self {
+        Array { lineno, elements }
+    }
+
+    pub fn ttype(&self) -> NodeType {
+        NodeType::Array
     }
 }
 
