@@ -7,13 +7,13 @@ use crate::parser::Parser;
 use crate::symbols::*;
 
 pub struct Executor<'l> {
-    global_env: Box<Environment<'static>>,
+    global_env: &'l mut Environment,
     heap: Heap<Object>,
     parser: &'l Parser<'l>,
 }
 
 impl<'l> Executor<'l> {
-    pub fn new(env: Box<Environment<'static>>, parser: &'l Parser<'l>) -> Self {
+    pub fn new(env: &'l mut Environment, parser: &'l Parser<'l>) -> Self {
         Self {
             global_env: env,
             heap: Heap::new(),
@@ -23,26 +23,27 @@ impl<'l> Executor<'l> {
 
     pub fn visit_program(&mut self, program: &Program) -> Vec<Cell<Object>> {
         let mut result = Vec::new();
-        let mut global_scope = self.global_env.clone();
         for stmt in &program.statements {
-            result.push(self.visit_expr(stmt, global_scope.as_mut()));
+            result.push(self.visit_expr(stmt));
         }
         result
     }
 
-    pub fn visit_expr(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_expr(&mut self, node: &Node) -> Cell<Object> {  
+
         match node {
             Node::BinaryOp(op) => match op.ttype() {
-                NodeType::Add => self.visit_add(node, env),
-                NodeType::Mul => self.visit_mul(node, env),
-                NodeType::Div => self.visit_div(node, env),
-                NodeType::Sub => self.visit_sub(node, env),
-                NodeType::Lt => self.visit_lt(node, env),
-                NodeType::LtEq => self.visit_lte(node, env),
-                NodeType::Gt => self.visit_gt(node, env),
-                NodeType::GtEq => self.visit_gte(node, env),
-                NodeType::Eq => self.visit_eq(node, env),
-                NodeType::NotEq => self.visit_neq(node, env),
+                NodeType::Add => self.visit_add(node),
+                NodeType::Mul => self.visit_mul(node),
+                NodeType::Div => self.visit_div(node),
+                NodeType::Sub => self.visit_sub(node),
+                NodeType::Lt => self.visit_lt(node),
+                NodeType::LtEq => self.visit_lte(node),
+                NodeType::Gt => self.visit_gt(node),
+                NodeType::GtEq => self.visit_gte(node),
+                NodeType::Eq => self.visit_eq(node),
+                NodeType::NotEq => self.visit_neq(node),
+                NodeType::Assign => self.visit_assign(node),
                 _ => self.emit_type_error(
                     format!("invalid operation {}", op.token.lexeme),
                     NodeParseInfo {
@@ -57,13 +58,13 @@ impl<'l> Executor<'l> {
             Node::Array(arr) => {
                 let mut elements = Vec::new();
                 for element in &arr.elements {
-                    let obj = self.visit_expr(element, env);
+                    let obj = self.visit_expr(element);
                     elements.push(obj.as_ref().clone());
                 }
                 self.heap.allocate_cell(Object::Array(elements))
             }
             Node::Range(range) => {
-                let start = match self.visit_expr(&range.start, env).as_ref() {
+                let start = match self.visit_expr(&range.start).as_ref() {
                     Object::Number(n) => *n,
                     _ => {
                         return self.emit_type_error(
@@ -79,7 +80,7 @@ impl<'l> Executor<'l> {
                         )
                     }
                 };
-                let end = match self.visit_expr(&range.end, env).as_ref() {
+                let end = match self.visit_expr(&range.end).as_ref() {
                     Object::Number(n) => *n,
                     _ => {
                         return self.emit_type_error(
@@ -100,46 +101,43 @@ impl<'l> Executor<'l> {
             }
             Node::StringLiteral(s) => self.heap.allocate_cell(Object::String(s.literal.clone())),
             Node::Block(block) =>  {
-                let parent_scope = env.clone();
-                let boxed_parent_scope = Box::new(parent_scope);
-                let mut scope = Environment::new_with_prev(&boxed_parent_scope);
-                return self.visit_block(&block, &mut scope);
+                return self.visit_block(&block);
             }
-            Node::Declare(decl) => self.visit_declare(decl, env),
-            Node::Init(init) => self.visit_init(init, env),
-            Node::Ident(id) => self.visit_ident(id, env),
-            Node::If(ifs) => self.visit_if(ifs, env),
-            Node::While(w) => self.visit_while(w, env),
-            Node::For(forstmt) => self.visit_for(forstmt, env),
+            Node::Declare(decl) => self.visit_declare(decl),
+            Node::Init(init) => self.visit_init(init),
+            Node::Ident(id) => self.visit_ident(id),
+            Node::If(ifs) => self.visit_if(ifs),
+            Node::While(w) => self.visit_while(w),
+            Node::For(forstmt) => self.visit_for(forstmt),
             Node::Function(func) => self.visit_func_anon(func),
-            Node::FunctionExpr(func) => self.visit_func_expr(func, env),
+            Node::FunctionExpr(func) => self.visit_func_expr(func),
             Node::Call(func_call) => {
-                let parent_scope = env.clone();
-                let boxed_parent_scope = Box::new(parent_scope);
-                let mut scope = Environment::new_with_prev(&boxed_parent_scope);
-                return self.visit_func_call(&mut scope, func_call);
+                return self.visit_func_call(func_call);                
             }
             _ => todo!(),
         }
     }
 
-    fn visit_block(&mut self, block: &Block, env: &mut Environment) -> Cell<Object> {
+    fn visit_block(&mut self, block: &Block) -> Cell<Object> {
+        self.global_env.push_scope();
         for stmt in &block.statements {
             match stmt.as_ref() {
                 Node::Return(ret) => {
-                    let val = self.visit_expr(&ret.value, env);
+                    let val = self.visit_expr(&ret.value);
+                    self.global_env.pop_scope();
                     return val;
                 }
                 _ => {
-                    let _ = self.visit_expr(stmt, env);
+                    let _ = self.visit_expr(stmt);
                 }
             }
         }
+        self.global_env.pop_scope();
         self.heap.allocate_cell(Object::Null)
     }
 
-    fn visit_for(&mut self, forstmt: &ForStmt, env: &mut Environment) -> Cell<Object> {
-        let iter_cell = self.visit_expr(&forstmt.iter, env);
+    fn visit_for(&mut self, forstmt: &ForStmt) -> Cell<Object> {
+        let iter_cell = self.visit_expr(&forstmt.iter);
         let iter_obj = iter_cell.as_ref();
         let mut iterator = match iter_obj.get_iterator() {
             Some(it) => it,
@@ -163,9 +161,9 @@ impl<'l> Executor<'l> {
             if let Some(item) = iterator.next() {
                 let cell = self.heap.allocate_cell(item);
                 if ident_name.len() > 0 {
-                    env.add(&ident_name, cell);
+                    self.global_env.add(&ident_name, cell);
                 }
-                let _ = self.visit_expr(&forstmt.block, env);
+                let _ = self.visit_expr(&forstmt.block);
             } else {
                 break;
             }
@@ -173,33 +171,31 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Null)
     }
 
-    fn visit_declare(&mut self, decl: &Declare, env: &mut Environment) -> Cell<Object> {
+    fn visit_declare(&mut self, decl: &Declare) -> Cell<Object> {
         for ident in &decl.idents {
             if let Node::Ident(id) = ident {
-                env.add(&id.value, self.heap.allocate_cell(Object::Null));
+                self.global_env.add(&id.value, self.heap.allocate_cell(Object::Null));
             }
         }
         self.heap.allocate_cell(Object::Null)
     }
 
-    fn visit_init(&mut self, init: &Init, env: &mut Environment) -> Cell<Object> {
-        let value_cell = self.visit_expr(&init.value, env);
+    fn visit_init(&mut self, init: &Init) -> Cell<Object> {
+        let value_cell = self.visit_expr(&init.value);
         let name = match *init.ident {
             Node::Ident(ref id) => id.value.clone(),
             _ => String::from(""),
         };
-        let  scope = env;
 
         if name.len() > 0 {
-            scope.add(&name, value_cell.clone());
+            self.global_env.add(&name, value_cell.clone());
         }
         value_cell
     }
 
-    fn visit_ident(&mut self, id: &Ident, env: &mut Environment) -> Cell<Object> {
-        let scope = env;
+    fn visit_ident(&mut self, id: &Ident) -> Cell<Object> {
 
-        match scope.get(&id.value) {
+        match self.global_env.get(&id.value) {
             Some(cell) => {
                 let obj = cell.as_ref().clone();
                 self.heap.allocate_cell(obj)
@@ -214,12 +210,48 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_func_expr(&mut self, func: &FunctionExpr, env: &mut Environment) -> Cell<Object> {
+    fn visit_assign(&mut self, node: &Node) -> Cell<Object> {
+        let assign = match node {
+            Node::BinaryOp(op) => op,
+            _ => unreachable!(),
+        };
+
+        let value_cell = self.visit_expr(&assign.right);
+        let (name, id_ref) = match assign.left.as_ref() {
+            Node::Ident(ref id) => (id.value.clone(), id),
+            _ => (String::from(""), &Ident { 
+                value: String::new(), 
+                lineno: 0, 
+                token: Token {
+                    lexeme: String::new(),
+                    ttype: TType::Id,
+                    offset: 0,
+                },
+            }),
+        };
+        if name.len() > 0 {
+            if let Some(var) = self.global_env.get(&name) {
+                let var_obj = self.heap.view_mut_cell(var).unwrap();
+                *var_obj = value_cell.as_ref().clone();
+            }else {
+                return  self.emit_undefined_error(
+                    format!("undefined identifier '{}'", name),
+                    NodeParseInfo {
+                        lineno: id_ref.lineno,
+                        token: id_ref.token.clone(),
+                    },
+                );
+            }
+        }
+        self.heap.allocate_cell(Object::Null)
+    }
+
+    fn visit_func_expr(&mut self, func: &FunctionExpr) -> Cell<Object> {
         let f_obj = self
             .heap
             .allocate_cell(Object::Function(FunctionType::Expr(func.clone())));
         match func.name.as_ref() {
-            Node::Ident(id) => env.add(&id.value, f_obj.clone()),
+            Node::Ident(id) => self.global_env.add(&id.value, f_obj.clone()),
             _ => (),
         }
         f_obj
@@ -230,8 +262,9 @@ impl<'l> Executor<'l> {
             .allocate_cell(Object::Function(FunctionType::Decl(func.clone())))
     }
 
-    fn visit_func_call(&mut self, scope: &mut Environment, func_call: &Call) -> Cell<Object> {
-        if scope.is_recursion_limit_exceded() {
+    fn visit_func_call(&mut self, func_call: &Call) -> Cell<Object> {
+        self.global_env.push_scope();
+        if self.global_env.is_scoping_limit_exceded() {
             return self.emit_recursion_limit_reached_error(NodeParseInfo {
                 lineno: func_call.lineno,
                 token: func_call.token.clone(),
@@ -249,11 +282,11 @@ impl<'l> Executor<'l> {
             }
         };
 
-        let callee_cell = self.visit_expr(callee_node, scope);
+        let callee_cell = self.visit_expr(callee_node);
 
         let mut arg_cells: Vec<Cell<Object>> = Vec::with_capacity(func_call.args.len());
         for arg in &func_call.args {
-            arg_cells.push(self.visit_expr(arg, scope));
+            arg_cells.push(self.visit_expr(arg));
         }
 
         let callee_obj = callee_cell.as_ref().clone();
@@ -282,6 +315,7 @@ impl<'l> Executor<'l> {
                 };
 
                 if param_names.len() != arg_cells.len() {
+                    self.global_env.pop_scope();
                     return self.emit_type_error(
                         "arity mismatch".to_string(),
                         NodeParseInfo { lineno: func_call.lineno, token: func_call.token.clone() },
@@ -289,14 +323,16 @@ impl<'l> Executor<'l> {
                 }
 
                 for (i, name) in param_names.iter().enumerate() {
-                    scope.add(name, arg_cells[i].clone());
+                    self.global_env.add(name, arg_cells[i].clone());
                 }
 
                 
-                let result = self.visit_expr(&body_owned, scope);
+                let result = self.visit_expr(&body_owned);
+                self.global_env.pop_scope();
                 return result;
             }
             _ => {
+                self.global_env.pop_scope();
                 return self.emit_type_error(
                     "object is not callable".to_string(),
                     NodeParseInfo { lineno: func_call.lineno, token: func_call.token.clone() },
@@ -305,11 +341,27 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_if(&mut self, ifs: &If, env: &mut Environment) -> Cell<Object> {
-        let pred = self.visit_expr(&ifs.predicate, env);
+    fn visit_if(&mut self, ifs: &If) -> Cell<Object> {
+        let pred = self.visit_expr(&ifs.predicate);
         match pred.as_ref() {
-            Object::Bool(true) => self.visit_expr(&ifs.block, env),
-            Object::Bool(false) => self.visit_expr(&ifs.alt, env),
+            Object::Bool(true) => self.visit_expr(&ifs.block),
+            Object::Bool(false) => {
+                // Evaluate else-if chain if present
+                for alt in &ifs.else_if {
+                    if let Node::If(nested_if) = alt.as_ref() {
+                        return self.visit_if(nested_if);
+                    } else {
+                        return self.visit_expr(alt);
+                    }
+                }
+
+                // Fallback to else block
+                if let Some(ref else_blk) = ifs.else_block {
+                    return self.visit_expr(else_blk);
+                }
+
+                self.heap.allocate_cell(Object::Null)
+            }
             _ => self.emit_type_error(
                 "predicate must be boolean".to_string(),
                 NodeParseInfo {
@@ -320,12 +372,12 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_while(&mut self, w: &While, env: &mut Environment) -> Cell<Object> {
+    fn visit_while(&mut self, w: &While) -> Cell<Object> {
         loop {
-            let pred = self.visit_expr(&w.predicate, env);
+            let pred = self.visit_expr(&w.predicate);
             match pred.as_ref() {
                 Object::Bool(true) => {
-                    let _ = self.visit_expr(&w.block, env);
+                    let _ = self.visit_expr(&w.block);
                 }
                 Object::Bool(false) => break,
                 _ => {
@@ -342,13 +394,13 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Null)
     }
 
-    pub fn visit_lt(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_lt(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left, env);
-        let r = self.visit_expr(&op.right, env);
+        let l = self.visit_expr(&op.left);
+        let r = self.visit_expr(&op.right);
         match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => self.heap.allocate_cell(Object::Bool(a < b)),
             _ => self.emit_type_error(
@@ -361,13 +413,13 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_lte(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_lte(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left, env);
-        let r = self.visit_expr(&op.right, env);
+        let l = self.visit_expr(&op.left);
+        let r = self.visit_expr(&op.right);
         match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => self.heap.allocate_cell(Object::Bool(a <= b)),
             _ => self.emit_type_error(
@@ -380,13 +432,13 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_gt(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_gt(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left, env);
-        let r = self.visit_expr(&op.right, env);
+        let l = self.visit_expr(&op.left);
+        let r = self.visit_expr(&op.right);
         match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => self.heap.allocate_cell(Object::Bool(a > b)),
             _ => self.emit_type_error(
@@ -399,13 +451,13 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_gte(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_gte(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left, env);
-        let r = self.visit_expr(&op.right, env);
+        let l = self.visit_expr(&op.left);
+        let r = self.visit_expr(&op.right);
         match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => self.heap.allocate_cell(Object::Bool(a >= b)),
             _ => self.emit_type_error(
@@ -418,13 +470,13 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_eq(&mut self, node: &Node, env:& mut Environment) -> Cell<Object> {
+    pub fn visit_eq(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left, env);
-        let r = self.visit_expr(&op.right, env);
+        let l = self.visit_expr(&op.left);
+        let r = self.visit_expr(&op.right);
         let res = match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => a == b,
             (Object::Bool(a), Object::Bool(b)) => a == b,
@@ -435,13 +487,13 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Bool(res))
     }
 
-    pub fn visit_neq(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_neq(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left, env);
-        let r = self.visit_expr(&op.right, env);
+        let l = self.visit_expr(&op.left);
+        let r = self.visit_expr(&op.right);
         let res = match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => a != b,
             (Object::Bool(a), Object::Bool(b)) => a != b,
@@ -452,14 +504,14 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Bool(res))
     }
 
-    pub fn visit_add(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_add(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_mul should only be called with Node::BinaryOp"),
         };
 
-        let left_node = self.visit_expr(&op.left, env);
-        let right_node = self.visit_expr(&op.right, env);
+        let left_node = self.visit_expr(&op.left);
+        let right_node = self.visit_expr(&op.right);
 
         let lval = match left_node.as_ref() {
             Object::Number(val) => Ok(val),
@@ -482,13 +534,13 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_sub(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_sub(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_sub should only be called with Node::BinaryOp"),
         };
-        let left_node = self.visit_expr(&op.left, env);
-        let right_node = self.visit_expr(&op.right, env);
+        let left_node = self.visit_expr(&op.left);
+        let right_node = self.visit_expr(&op.right);
 
         let lval = match left_node.as_ref() {
             Object::Number(val) => Ok(val),
@@ -511,13 +563,13 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_mul(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_mul(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_mul should only be called with Node::BinaryOp"),
         };
-        let left_node = self.visit_expr(&op.left, env);
-        let right_node = self.visit_expr(&op.right, env);
+        let left_node = self.visit_expr(&op.left);
+        let right_node = self.visit_expr(&op.right);
 
         let lval = match left_node.as_ref() {
             Object::Number(val) => Ok(val),
@@ -541,14 +593,14 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_div(&mut self, node: &Node, env: &mut Environment) -> Cell<Object> {
+    pub fn visit_div(&mut self, node: &Node) -> Cell<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_div should only be called with Node::BinaryOp"),
         };
 
-        let left_node = self.visit_expr(&op.left, env);
-        let right_node = self.visit_expr(&op.right, env);
+        let left_node = self.visit_expr(&op.left);
+        let right_node = self.visit_expr(&op.right);
 
         let lval = match left_node.as_ref() {
             Object::Number(val) => Ok(val),

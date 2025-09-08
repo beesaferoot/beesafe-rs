@@ -29,6 +29,7 @@ pub enum Node {
     Range(Range),
     Array(Array),
     Call(Call),
+    Index(Index),
     Declare(Declare),
     Function(Function),
     FunctionExpr(FunctionExpr),
@@ -69,6 +70,7 @@ pub enum NodeType {
     Declare,
     For,
     Call,
+    Index,
     Program,
     Err,
 }
@@ -188,7 +190,8 @@ pub struct If {
     pub lineno: i32,
     pub token: Token,
     pub predicate: Box<Node>,
-    pub alt: Box<Node>,
+    pub else_if: Vec<Box<Node>>,
+    pub else_block: Option<Box<Node>>,
     pub block: Box<Node>,
 }
 
@@ -228,6 +231,14 @@ pub struct Range {
 pub struct Array {
     pub lineno: i32,
     pub elements: Vec<Node>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Index {
+    pub lineno: i32,
+    pub token: Token,
+    pub object: Box<Node>,
+    pub index: Box<Node>,
 }
 
 #[derive(Debug, Clone)]
@@ -315,6 +326,7 @@ impl BinaryOp {
             TType::GtEq => NodeType::GtEq,
             TType::LtEq => NodeType::LtEq,
             TType::NotEq => NodeType::NotEq,
+            TType::Assign => NodeType::Assign,
             _ => NodeType::Undefined,
         }
     }
@@ -364,6 +376,12 @@ impl Array {
 
     pub fn ttype(&self) -> NodeType {
         NodeType::Array
+    }
+}
+
+impl Index {
+    pub fn ttype(&self) -> NodeType {
+        NodeType::Index
     }
 }
 

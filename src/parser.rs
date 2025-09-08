@@ -102,6 +102,63 @@ impl<'a> Parser<'a> {
         node
     }
 
+    fn parse_index_expr(&mut self) -> Node {
+        let lineno = self.lexer.lineno();
+        let mut current_token = self.current_token.clone().unwrap();
+
+        let object = self.create_node(&TType::Id);
+        
+        self.consume_next_token();
+        current_token = self.current_token.clone().unwrap();
+
+
+        if current_token.ttype != TType::Lbracket {
+            let span = (
+                current_token.offset as usize,
+                current_token.lexeme.len() + current_token.offset as usize,
+            )
+                .into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::InvalidSyntax(format!(
+                    "Expected '[' after object, got {}",
+                    current_token.lexeme
+                )),
+            );
+            return Node::Error(err);
+        }
+        self.consume_next_token();
+
+        let index = self.parse_expression();
+
+        self.consume_next_token();
+        current_token = self.current_token.clone().unwrap();
+
+        if current_token.ttype != TType::Rbracket {
+            let span = (
+                current_token.offset as usize,
+                current_token.lexeme.len() + current_token.offset as usize,
+            )
+                .into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::InvalidSyntax(format!(
+                    "Expected ']' after index, got {}",
+                    current_token.lexeme
+                )),
+            );
+            return Node::Error(err);
+        }
+
+        Node::Index(Index {
+            lineno,
+            token: current_token.clone(),
+            object: Box::new(object),
+            index: Box::new(index),
+        })
+    }
 
     
 
@@ -168,6 +225,9 @@ impl<'a> Parser<'a> {
                     let call_node = self.parse_call_expr();
                     self.operand_stack.pop();
                     self.operand_stack.push(call_node);
+                } else if self.peek_token.as_ref().unwrap().ttype == TType::Lbracket {
+                    let index_node = self.parse_index_expr();
+                    self.operand_stack.push(index_node);
                 } else {
                     let node = self.create_node(&ttype);
                     self.operand_stack.push(node);
@@ -433,6 +493,7 @@ impl<'a> Parser<'a> {
             | TType::GtEq
             | TType::Eq
             | TType::NotEq
+            | TType::Assign
             | TType::Range => Node::BinaryOp(BinaryOp {
                 lineno: self.lexer.lineno(),
                 token: op_token,
@@ -604,15 +665,20 @@ impl<'a> Parser<'a> {
         let lineno = self.lexer.lineno();
         let if_token = self.current_token.clone().unwrap();
 
+        // Move to predicate start
         self.consume_next_token();
 
+        // Parse predicate expression (optionally wrapped in parentheses)
         let predicate = self.parse_expression();
 
-        if self.current_token.as_ref().unwrap().ttype == TType::Rparen {
+        // Consume optional ')'
+        let mut current_token = self.current_token.as_ref().unwrap().clone();
+        if current_token.ttype == TType::Rparen {
             self.consume_next_token();
+            current_token = self.current_token.as_ref().unwrap().clone();
         }
 
-        let current_token = self.current_token.as_ref().unwrap();
+        // Expect and parse block
         let block = match current_token.ttype {
             TType::Lbrace => match self.parse_block_stmt() {
                 Ok(node) => node,
@@ -636,16 +702,34 @@ impl<'a> Parser<'a> {
             }
         };
 
-        // Check for else clause
-        let alt = match self.peek_token.as_ref().unwrap().ttype {
-            TType::Else => {
-                self.consume_next_token();
-                self.consume_next_token();
+        // Prepare else-if and else parsing
+        let mut else_if_nodes: Vec<Box<Node>> = Vec::new();
+        let mut else_block: Option<Box<Node>> = None;
 
-                let current_token = self.current_token.as_ref().unwrap();
+        // Skip optional newlines between '}' and 'else'
+        let mut next_tt = self.peek_token.as_ref().unwrap().ttype;
+        while next_tt == TType::Newline {
+            self.consume_next_token();
+            next_tt = self.peek_token.as_ref().unwrap().ttype;
+        }
+
+        // Handle a single trailing 'else' which can be either 'else if ...' (nested if)
+        // or an 'else { ... }' block. If it's an 'else if', we parse it recursively and
+        // stop, letting the nested if handle any further chaining.
+        if next_tt == TType::Else {
+            // consume 'else'
+            self.consume_next_token();
+            // advance to next significant token
+            self.consume_next_token();
+
+            let current_token = self.current_token.as_ref().unwrap().clone();
+            if current_token.ttype == TType::If {
+                let nested_if = self.parse_if_stmt();
+                else_if_nodes.push(Box::new(nested_if));
+            } else {
                 match current_token.ttype {
                     TType::Lbrace => match self.parse_block_stmt() {
-                        Ok(node) => node,
+                        Ok(node) => else_block = Some(Box::new(node)),
                         Err(err) => return Node::Error(err),
                     },
                     _ => {
@@ -666,22 +750,15 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            _ => Node::Null(Null {
-                lineno: self.lexer.lineno(),
-                token: Token {
-                    lexeme: "".to_string(),
-                    ttype: TType::Null,
-                    offset: -1,
-                },
-            }),
-        };
+        }
 
         Node::If(If {
             lineno,
             token: if_token,
             predicate: Box::new(predicate),
+            else_if: else_if_nodes,
+            else_block,
             block: Box::new(block),
-            alt: Box::new(alt),
         })
     }
 

@@ -1,64 +1,55 @@
+use std::collections::HashMap;
 use crate::allocator::Cell;
 use crate::symbols::Object;
-use std::collections::HashMap;
 
-#[derive(Clone)]
-pub struct Environment<'a> {
-    prev: Option<&'a Box<Environment<'a>>>,
+pub struct Environment {
     depth: i32,
-    table: HashMap<String, Cell<Object>>,
-    recursion_limit: i32,
+    scopes: Vec<HashMap<String, Cell<Object>>>,
+    scoping_limit: i32,
 }
 
-impl<'a> Environment<'a> {
+impl Environment {
     pub fn new() -> Self {
-        Self {
-            prev: None,
+       Self {
             depth: 1,
-            table: HashMap::from([]),
-            recursion_limit: 50,
+            scopes: vec![HashMap::new()],
+            scoping_limit: 50,
         }
     }
 
-    pub fn new_with_prev(prev: &'a Box<Environment>) -> Self {
-        Self {
-            prev: Some(prev),
-            depth: prev.depth + 1,
-            table: HashMap::from([]),
-            recursion_limit: 50,
+    pub fn add(&mut self, identifier: &str, value: Cell<Object>) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(identifier.to_string(), value);
         }
     }
 
-    pub fn add(&mut self, identifier: &String, value: Cell<Object>) {
-        self.table.insert(identifier.to_string(), value);
-    }
-
-    pub fn get(&self, identifier: &String) -> Option<&Cell<Object>> {
-        let mut current_env = self.prev();
-        let mut ident_value: Option<&Cell<Object>> = None;
-        if self.table.contains_key(identifier) {
-            return self.table.get(identifier);
-        }
-        while !current_env.is_none() {
-            match current_env.unwrap().get(identifier) {
-                Some(value) => ident_value = Some(value),
-                None => {}
+    pub fn get(&self, identifier: &str) -> Option<Cell<Object>> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(val) = scope.get(identifier) {
+                return Some(val.clone());
             }
-            current_env = current_env.unwrap().prev();
         }
-
-        ident_value
+        None
     }
 
-    pub fn prev(&self) -> Option<&Box<Environment>> {
-        self.prev
+    pub fn push_scope(&mut self) {
+        self.depth += 1;
+        self.scopes.push(HashMap::new());
     }
 
-    pub fn is_recursion_limit_exceded(&self) -> bool {
-        self.recursion_limit <= self.depth
+    pub fn pop_scope(&mut self) {
+        if self.depth > 1 {
+            self.depth -= 1;
+            self.scopes.pop();
+        }
+    }
+
+    pub fn is_scoping_limit_exceded(&self) -> bool {
+        self.scoping_limit <= self.depth
     }
 
     pub fn depth(&self) -> i32 {
         self.depth
     }
+
 }

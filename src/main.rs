@@ -17,7 +17,8 @@ fn main() {
                 let mut parser = Parser::new(&mut lexer);
                 let program = parser.parse_program();
                 println!("{:?}", program);
-                let mut executor = executor::Executor::new(Box::new(Environment::new()), &parser);
+                let mut env = Environment::new();
+                let mut executor = executor::Executor::new(&mut env, &parser);
                 if parser.has_errors() {
                     parser.show_errors();
                 } else {

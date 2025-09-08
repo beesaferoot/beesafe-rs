@@ -396,6 +396,70 @@ fn test_array_literals() {
     assert!(!parser.has_errors());
 }
 
+#[test]
+fn test_assignment_parsing() {
+    let input = r#"
+        declare x, y
+        x = 1 + 2 * 3
+        y = x = 5
+        (x = 7) == 7
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert_eq!(program.statements.len(), 4);
+    assert!(!parser.has_errors());
+}
+
+#[test]
+fn test_assignment_precedence_vs_comparison_and_call() {
+    let input = r#"
+        declare a
+        a = 1 < 2 == true
+        declare f
+        f = define(x){ x } 
+        f(1 + (a = 3))
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert_eq!(program.statements.len(), 5);
+    assert!(!parser.has_errors());
+}
+
+#[test]
+fn test_else_if_chaining() {
+    let input = r#"
+        if (1 < 0) { 
+            declare x 
+        } else if (2 < 0) { 
+         declare y 
+        } else { 
+            declare z 
+        }
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert_eq!(program.statements.len(), 1);
+    assert!(!parser.has_errors());
+}
+
+#[test]
+fn test_index_expressions_and_assignment() {
+    let input = r#"
+        declare a
+        init a = [1,2,3]
+        a[0]
+        a[1] = 4
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert_eq!(program.statements.len(), 4);
+    assert!(!parser.has_errors());
+}
+
 fn verify_node_type(node: &Node, expected_type: &NodeType) {
     match node {
         Node::BinaryOp(op) => assert_eq!(op.ttype(), *expected_type),

@@ -4,19 +4,18 @@ use beesafe::lexer;
 use beesafe::parser;
 use beesafe::symbols::Object;
 
+
 #[test]
 fn test_add_expression_eval() {
     let input_string = "1 + 3";
     let mut lexer = lexer::Lexer::new(input_string);
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
-    let env = Box::new(environment::Environment::new());
+    let mut env = environment::Environment::new();
 
-    let mut exec = executor::Executor::new(env.clone(), &parser);
+    let mut exec = executor::Executor::new(&mut env, &parser);
 
-    let mut global_scope = env.clone();
-
-    let result = match exec.visit_expr(&program.statements[0], global_scope.as_mut()).as_ref() {
+    let result = match exec.visit_expr(&program.statements[0]).as_ref() {
         Object::Number(num) => Some(*num),
         _ => None,
     };
@@ -33,8 +32,8 @@ fn test_for_over_range_exec() {
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let env = Box::new(environment::Environment::new());
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
     match results[0].as_ref() {
@@ -53,8 +52,8 @@ fn test_for_over_array_exec() {
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let env = Box::new(environment::Environment::new());
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
     match results[0].as_ref() {
@@ -73,8 +72,8 @@ fn test_for_over_string_exec() {
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let env = Box::new(environment::Environment::new());
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
     match results[0].as_ref() {
@@ -93,8 +92,8 @@ fn test_for_non_iterable_error() {
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let env = Box::new(environment::Environment::new());
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
     match results[0].as_ref() {
@@ -118,8 +117,8 @@ fn test_comparisons_exec() {
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let env = Box::new(environment::Environment::new());
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     let bools: Vec<bool> = results
         .into_iter()
@@ -150,8 +149,8 @@ fn test_declare_init_ident_and_if_while() {
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let env = Box::new(environment::Environment::new());
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     match results.last().unwrap().as_ref() {
         Object::Number(n) => assert_eq!(*n, 0),
@@ -172,8 +171,8 @@ fn test_function_define_and_call() {
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let env = Box::new(environment::Environment::new());
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     match results.last().unwrap().as_ref() {
         Object::Number(n) => assert_eq!(*n, 5),
@@ -194,11 +193,92 @@ fn test_function_expression_and_call() {
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let env = Box::new(environment::Environment::new());
-    let mut exec = executor::Executor::new(env, &parser);
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     match results.last().unwrap().as_ref() {
         Object::String(s) => assert_eq!(*s, "flower"),
         other => panic!("expected 'flower', got {:?}", other),
+    }
+}
+
+#[test]
+fn test_else_if_chaining_exec_if_branch() {
+    let input = r#"
+        declare x
+        if (2 > 1) {
+            x = 1
+        } else if (0 > 1) {
+            x = 2
+        } else {
+            x = 3
+        }
+        x
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert!(!parser.has_errors());
+
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
+    let results = exec.visit_program(&program);
+    match results.last().unwrap().as_ref() {
+        Object::Number(n) => assert_eq!(*n, 1),
+        other => panic!("expected 1, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_else_if_chaining_exec_else_if_branch() {
+    let input = r#"
+        declare x
+        if (1 < 0) {
+            x = 1
+        } else if (2 > 0) {
+            x = 2
+        } else {
+            x = 3
+        }
+        x
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert!(!parser.has_errors());
+
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
+    let results = exec.visit_program(&program);
+    match results.last().unwrap().as_ref() {
+        Object::Number(n) => assert_eq!(*n, 2),
+        other => panic!("expected 2, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_else_if_chaining_exec_else_branch() {
+    let input = r#"
+        declare x
+        if (1 < 0) {
+            x = 1
+        } else if (2 < 0) {
+            x = 2
+        } else {
+            x = 3
+        }
+        x
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert!(!parser.has_errors());
+
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
+    let results = exec.visit_program(&program);
+    match results.last().unwrap().as_ref() {
+        Object::Number(n) => assert_eq!(*n, 3),
+        other => panic!("expected 3, got {:?}", other),
     }
 }
