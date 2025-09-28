@@ -282,3 +282,22 @@ fn test_else_if_chaining_exec_else_branch() {
         other => panic!("expected 3, got {:?}", other),
     }
 }
+
+#[test]
+fn test_invalid_function_call() {
+    let input = r#"
+        print("hello")
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert!(!parser.has_errors());
+
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
+    let results = exec.visit_program(&program);
+    match results.last().unwrap().as_ref() {
+        Object::Error(err) => err.visit(),
+        other => panic!("expected Error, got {:?}", other),
+    }
+}

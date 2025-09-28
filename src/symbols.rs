@@ -1,4 +1,4 @@
-use miette::{Diagnostic, SourceSpan};
+use miette::{Diagnostic, GraphicalReportHandler, SourceSpan};
 
 /*
     Symbol objects for beesafe
@@ -75,6 +75,8 @@ pub enum ErrType {
 pub enum RuntimeError {
     DivisionByZero(ErrInfo),
     RecursionLimitReached(ErrInfo),
+    InvalidFunctionCall(ErrInfo),
+    UndefinedIdentifier(ErrInfo),
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +122,25 @@ impl ErrorObj {
                     "{:?}",
                     miette::Report::new(info.clone()).with_source_code(info.src)
                 ),
+                RuntimeError::InvalidFunctionCall(info) => eprint!(
+                    "{:?}",
+                    miette::Report::new(info.clone()).with_source_code(info.src)
+                ),
+                RuntimeError::UndefinedIdentifier(info) => eprint!(
+                    "{:?}",
+                    miette::Report::new(info.clone()).with_source_code(info.src)
+                ),
+                // RuntimeError::UndefinedIdentifier(info) => {
+                //     println!("Debug info: {:?}", info);  
+                //     let report = miette::Report::new(info.clone()).with_source_code(info.src);
+                //     let mut out = String::new();
+                //     GraphicalReportHandler::new()
+                //         .render_report(&mut out, &*report)
+                //         .unwrap_or_else(|e| {
+                //             println!("Error rendering report: {}", e);
+                //         });
+                //     print!("{out}");
+                // }
             },
             None => (),
         }
@@ -205,12 +226,6 @@ impl IteratorObj {
 }
 
 impl Markable<Object> for Object {
-    fn mark(&mut self) {}
-
-    fn is_marked(&self) -> bool {
-        false
-    }
-
     fn get_references(&self) -> Vec<Cell<Object>> {
         match self {
             Object::Array(elements) => elements.clone(),

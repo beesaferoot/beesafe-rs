@@ -7,10 +7,6 @@ enum Object {
 }
 
 impl Markable<Object> for Object {
-    fn mark(&mut self) {}
-    fn is_marked(&self) -> bool {
-        false
-    }
     fn get_references(&self) -> Vec<Cell<Object>> {
         Vec::new()
     }

@@ -277,8 +277,8 @@ impl<'l> Executor<'l> {
         let callee_node = match func_call.func {
             Some(ref node) => node.as_ref(),
             None => {
-                return self.emit_type_error(
-                    "invalid function call".to_string(),
+                return self.emit_invalid_function_call_error(
+                    "function call is not valid".to_string(),
                     NodeParseInfo {
                         lineno: func_call.lineno,
                         token: func_call.token.clone(),
@@ -288,6 +288,22 @@ impl<'l> Executor<'l> {
         };
 
         let callee_cell = self.visit_expr(callee_node);
+
+        match callee_cell.as_ref() {
+            Object::Function(_) => (),
+            Object::Error(_) => {
+                return callee_cell;
+            }
+            _ => {
+                return self.emit_undefined_error(
+                    "function is not defined".to_string(),
+                    NodeParseInfo {
+                        lineno: func_call.lineno,
+                        token: func_call.token.clone(),
+                    },
+                )
+            }
+        }
 
         let mut arg_cells: Vec<Cell<Object>> = Vec::with_capacity(func_call.args.len());
         for arg in &func_call.args {
@@ -657,11 +673,7 @@ impl<'l> Executor<'l> {
                 err_type: ErrType::RuntimeError("Recursion limit reached".to_owned()),
                 msg,
                 src: self.parser.source(),
-                span: (
-                    offset as usize,
-                    parse_info.token.lexeme.len() + offset as usize,
-                )
-                    .into(),
+                span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
         }))
     }
@@ -689,11 +701,7 @@ impl<'l> Executor<'l> {
                 err_type,
                 msg: error_msg,
                 src: self.parser.source(),
-                span: (
-                    offset as usize,
-                    parse_info.token.lexeme.len() + offset as usize,
-                )
-                    .into(),
+                span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
             run_time_error: None,
         }))
@@ -711,11 +719,7 @@ impl<'l> Executor<'l> {
                 err_type: ErrType::RuntimeError("Division by zero".to_owned()),
                 msg,
                 src: self.parser.source(),
-                span: (
-                    offset as usize,
-                    parse_info.token.lexeme.len() + offset as usize,
-                )
-                    .into(),
+                span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
         }))
     }
@@ -723,19 +727,32 @@ impl<'l> Executor<'l> {
     fn emit_undefined_error(&mut self, msg: String, parse_info: NodeParseInfo) -> Cell<Object> {
         let offset = parse_info.token.offset;
         self.heap.allocate_cell(Object::Error(ErrorObj {
-            type_error: Some(TypeError::PlaceHolder(ErrInfo {
-                err_type: ErrType::UndefinedError(
+            run_time_error: Some(RuntimeError::UndefinedIdentifier(ErrInfo {
+                err_type: ErrType::RuntimeError(
                     "this identifier may have not been declared".to_string(),
                 ),
                 msg,
                 src: self.parser.source(),
-                span: (
-                    offset as usize,
-                    parse_info.token.lexeme.len() + offset as usize,
-                )
-                    .into(),
+                span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
-            run_time_error: None,
+            type_error: None,
+        }))
+    }
+
+    fn emit_invalid_function_call_error(
+        &mut self,
+        msg: String,
+        parse_info: NodeParseInfo,
+    ) -> Cell<Object> {
+        let offset = parse_info.token.offset;
+        self.heap.allocate_cell(Object::Error(ErrorObj {
+            run_time_error: Some(RuntimeError::InvalidFunctionCall(ErrInfo {
+                err_type: ErrType::RuntimeError("Invalid function call".to_string()),
+                msg,
+                src: self.parser.source(),
+                span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
+            })),
+            type_error: None,
         }))
     }
 }
