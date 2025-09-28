@@ -4,6 +4,7 @@ use miette::{Diagnostic, SourceSpan};
     Symbol objects for beesafe
 */
 use crate::{
+    allocator::{Cell, Markable},
     ast::{Function as Func, FunctionExpr as FuncExpr},
     environment::Environment,
 };
@@ -17,7 +18,7 @@ pub enum Object {
     Number(i32),
     String(String),
     Float(f32),
-    Array(Vec<Object>),
+    Array(Vec<Cell<Object>>),
     Range(RangeObj),
     Iterator(IteratorObj),
     Function(FunctionType),
@@ -161,10 +162,13 @@ impl Object {
 
     pub fn get_iterator(&self) -> Option<IteratorObj> {
         match self {
-            Object::Array(arr) => Some(IteratorObj {
-                current: 0,
-                items: arr.clone(),
-            }),
+            Object::Array(cells) => {
+                let mut items = Vec::new();
+                for cell in cells {
+                    items.push(cell.as_ref().clone());
+                }
+                Some(IteratorObj { current: 0, items })
+            }
             Object::Range(range) => {
                 let mut items = Vec::new();
                 for i in range.start..=range.end {
@@ -196,6 +200,21 @@ impl IteratorObj {
             Some(item)
         } else {
             None
+        }
+    }
+}
+
+impl Markable<Object> for Object {
+    fn mark(&mut self) {}
+
+    fn is_marked(&self) -> bool {
+        false
+    }
+
+    fn get_references(&self) -> Vec<Cell<Object>> {
+        match self {
+            Object::Array(elements) => elements.clone(),
+            _ => Vec::new(),
         }
     }
 }

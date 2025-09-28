@@ -29,8 +29,7 @@ impl<'l> Executor<'l> {
         result
     }
 
-    pub fn visit_expr(&mut self, node: &Node) -> Cell<Object> {  
-
+    pub fn visit_expr(&mut self, node: &Node) -> Cell<Object> {
         match node {
             Node::BinaryOp(op) => match op.ttype() {
                 NodeType::Add => self.visit_add(node),
@@ -59,7 +58,7 @@ impl<'l> Executor<'l> {
                 let mut elements = Vec::new();
                 for element in &arr.elements {
                     let obj = self.visit_expr(element);
-                    elements.push(obj.as_ref().clone());
+                    elements.push(obj);
                 }
                 self.heap.allocate_cell(Object::Array(elements))
             }
@@ -100,7 +99,7 @@ impl<'l> Executor<'l> {
                     .allocate_cell(Object::Range(crate::symbols::RangeObj { start, end }))
             }
             Node::StringLiteral(s) => self.heap.allocate_cell(Object::String(s.literal.clone())),
-            Node::Block(block) =>  {
+            Node::Block(block) => {
                 return self.visit_block(&block);
             }
             Node::Declare(decl) => self.visit_declare(decl),
@@ -112,7 +111,7 @@ impl<'l> Executor<'l> {
             Node::Function(func) => self.visit_func_anon(func),
             Node::FunctionExpr(func) => self.visit_func_expr(func),
             Node::Call(func_call) => {
-                return self.visit_func_call(func_call);                
+                return self.visit_func_call(func_call);
             }
             _ => todo!(),
         }
@@ -133,6 +132,7 @@ impl<'l> Executor<'l> {
             }
         }
         self.global_env.pop_scope();
+        self.heap.force_gc();
         self.heap.allocate_cell(Object::Null)
     }
 
@@ -174,7 +174,8 @@ impl<'l> Executor<'l> {
     fn visit_declare(&mut self, decl: &Declare) -> Cell<Object> {
         for ident in &decl.idents {
             if let Node::Ident(id) = ident {
-                self.global_env.add(&id.value, self.heap.allocate_cell(Object::Null));
+                self.global_env
+                    .add(&id.value, self.heap.allocate_cell(Object::Null));
             }
         }
         self.heap.allocate_cell(Object::Null)
@@ -194,7 +195,6 @@ impl<'l> Executor<'l> {
     }
 
     fn visit_ident(&mut self, id: &Ident) -> Cell<Object> {
-
         match self.global_env.get(&id.value) {
             Some(cell) => {
                 let obj = cell.as_ref().clone();
@@ -219,22 +219,25 @@ impl<'l> Executor<'l> {
         let value_cell = self.visit_expr(&assign.right);
         let (name, id_ref) = match assign.left.as_ref() {
             Node::Ident(ref id) => (id.value.clone(), id),
-            _ => (String::from(""), &Ident { 
-                value: String::new(), 
-                lineno: 0, 
-                token: Token {
-                    lexeme: String::new(),
-                    ttype: TType::Id,
-                    offset: 0,
+            _ => (
+                String::from(""),
+                &Ident {
+                    value: String::new(),
+                    lineno: 0,
+                    token: Token {
+                        lexeme: String::new(),
+                        ttype: TType::Id,
+                        offset: 0,
+                    },
                 },
-            }),
+            ),
         };
         if name.len() > 0 {
             if let Some(var) = self.global_env.get(&name) {
                 let var_obj = self.heap.view_mut_cell(var).unwrap();
                 *var_obj = value_cell.as_ref().clone();
-            }else {
-                return  self.emit_undefined_error(
+            } else {
+                return self.emit_undefined_error(
                     format!("undefined identifier '{}'", name),
                     NodeParseInfo {
                         lineno: id_ref.lineno,
@@ -271,13 +274,15 @@ impl<'l> Executor<'l> {
             });
         }
 
-        
         let callee_node = match func_call.func {
             Some(ref node) => node.as_ref(),
             None => {
                 return self.emit_type_error(
                     "invalid function call".to_string(),
-                    NodeParseInfo { lineno: func_call.lineno, token: func_call.token.clone() },
+                    NodeParseInfo {
+                        lineno: func_call.lineno,
+                        token: func_call.token.clone(),
+                    },
                 )
             }
         };
@@ -296,29 +301,34 @@ impl<'l> Executor<'l> {
                     FunctionType::Decl(f) => {
                         let mut names = Vec::new();
                         for p in &f.params {
-                            if let Node::Ident(ref id) = p { names.push(id.value.clone()); }
+                            if let Node::Ident(ref id) = p {
+                                names.push(id.value.clone());
+                            }
                         }
                         (names, (*f.body).clone())
                     }
-                    FunctionType::Expr(fe) => {
-                        match fe.func.as_ref() {
-                            Node::Function(f) => {
-                                let mut names = Vec::new();
-                                for p in &f.params {
-                                    if let Node::Ident(ref id) = p { names.push(id.value.clone()); }
+                    FunctionType::Expr(fe) => match fe.func.as_ref() {
+                        Node::Function(f) => {
+                            let mut names = Vec::new();
+                            for p in &f.params {
+                                if let Node::Ident(ref id) = p {
+                                    names.push(id.value.clone());
                                 }
-                                (names, (*f.body).clone())
                             }
-                            other => (Vec::new(), other.clone()),
+                            (names, (*f.body).clone())
                         }
-                    }
+                        other => (Vec::new(), other.clone()),
+                    },
                 };
 
                 if param_names.len() != arg_cells.len() {
                     self.global_env.pop_scope();
                     return self.emit_type_error(
                         "arity mismatch".to_string(),
-                        NodeParseInfo { lineno: func_call.lineno, token: func_call.token.clone() },
+                        NodeParseInfo {
+                            lineno: func_call.lineno,
+                            token: func_call.token.clone(),
+                        },
                     );
                 }
 
@@ -326,16 +336,19 @@ impl<'l> Executor<'l> {
                     self.global_env.add(name, arg_cells[i].clone());
                 }
 
-                
                 let result = self.visit_expr(&body_owned);
                 self.global_env.pop_scope();
+                self.heap.force_gc();
                 return result;
             }
             _ => {
                 self.global_env.pop_scope();
                 return self.emit_type_error(
                     "object is not callable".to_string(),
-                    NodeParseInfo { lineno: func_call.lineno, token: func_call.token.clone() },
+                    NodeParseInfo {
+                        lineno: func_call.lineno,
+                        token: func_call.token.clone(),
+                    },
                 );
             }
         }
@@ -711,7 +724,9 @@ impl<'l> Executor<'l> {
         let offset = parse_info.token.offset;
         self.heap.allocate_cell(Object::Error(ErrorObj {
             type_error: Some(TypeError::PlaceHolder(ErrInfo {
-                err_type: ErrType::UndefinedError("this identifier may have not been declared".to_string()),
+                err_type: ErrType::UndefinedError(
+                    "this identifier may have not been declared".to_string(),
+                ),
                 msg,
                 src: self.parser.source(),
                 span: (
