@@ -24,8 +24,11 @@ impl<'l> Executor<'l> {
     pub fn visit_program(&mut self, program: &Program) -> Vec<Cell<Object>> {
         let mut result = Vec::new();
         for stmt in &program.statements {
-            result.push(self.visit_expr(stmt));
+            let cell = self.visit_expr(stmt);
+            self.heap.add_root(cell);
+            result.push(cell);
         }
+        self.heap.force_gc();
         result
     }
 
@@ -123,7 +126,11 @@ impl<'l> Executor<'l> {
             match stmt.as_ref() {
                 Node::Return(ret) => {
                     let val = self.visit_expr(&ret.value);
-                    self.global_env.pop_scope();
+                    self.heap.add_root(val);
+                    let removed = self.global_env.pop_scope();
+                    for cell in removed {
+                        self.heap.remove_root(&cell);
+                    }
                     return val;
                 }
                 _ => {
@@ -131,8 +138,10 @@ impl<'l> Executor<'l> {
                 }
             }
         }
-        self.global_env.pop_scope();
-        self.heap.force_gc();
+        let removed = self.global_env.pop_scope();
+        for cell in removed {
+            self.heap.remove_root(&cell);
+        }
         self.heap.allocate_cell(Object::Null)
     }
 
@@ -161,7 +170,10 @@ impl<'l> Executor<'l> {
             if let Some(item) = iterator.next() {
                 let cell = self.heap.allocate_cell(item);
                 if ident_name.len() > 0 {
-                    self.global_env.add(&ident_name, cell);
+                    if let Some(prev) = self.global_env.add(&ident_name, cell) {
+                        self.heap.remove_root(&prev);
+                    }
+                    self.heap.add_root(cell);
                 }
                 let _ = self.visit_expr(&forstmt.block);
             } else {
@@ -174,8 +186,11 @@ impl<'l> Executor<'l> {
     fn visit_declare(&mut self, decl: &Declare) -> Cell<Object> {
         for ident in &decl.idents {
             if let Node::Ident(id) = ident {
-                self.global_env
-                    .add(&id.value, self.heap.allocate_cell(Object::Null));
+                let cell = self.heap.allocate_cell(Object::Null);
+                if let Some(prev) = self.global_env.add(&id.value, cell) {
+                    self.heap.remove_root(&prev);
+                }
+                self.heap.add_root(cell);
             }
         }
         self.heap.allocate_cell(Object::Null)
@@ -189,7 +204,10 @@ impl<'l> Executor<'l> {
         };
 
         if name.len() > 0 {
-            self.global_env.add(&name, value_cell.clone());
+            if let Some(prev) = self.global_env.add(&name, value_cell.clone()) {
+                self.heap.remove_root(&prev);
+            }
+            self.heap.add_root(value_cell.clone());
         }
         value_cell
     }
@@ -254,7 +272,12 @@ impl<'l> Executor<'l> {
             .heap
             .allocate_cell(Object::Function(FunctionType::Expr(func.clone())));
         match func.name.as_ref() {
-            Node::Ident(id) => self.global_env.add(&id.value, f_obj.clone()),
+            Node::Ident(id) => {
+                if let Some(prev) = self.global_env.add(&id.value, f_obj.clone()) {
+                    self.heap.remove_root(&prev);
+                }
+                self.heap.add_root(f_obj.clone());
+            }
             _ => (),
         }
         f_obj
@@ -349,16 +372,26 @@ impl<'l> Executor<'l> {
                 }
 
                 for (i, name) in param_names.iter().enumerate() {
-                    self.global_env.add(name, arg_cells[i].clone());
+                    if let Some(prev) = self.global_env.add(name, arg_cells[i].clone()) {
+                        self.heap.remove_root(&prev);
+                    }
+                    self.heap.add_root(arg_cells[i].clone());
                 }
 
                 let result = self.visit_expr(&body_owned);
-                self.global_env.pop_scope();
+                self.heap.add_root(result.clone());
+                let removed = self.global_env.pop_scope();
+                for cell in removed {
+                    self.heap.remove_root(&cell);
+                }
                 self.heap.force_gc();
                 return result;
             }
             _ => {
-                self.global_env.pop_scope();
+                let removed = self.global_env.pop_scope();
+                for cell in removed {
+                    self.heap.remove_root(&cell);
+                }
                 return self.emit_type_error(
                     "object is not callable".to_string(),
                     NodeParseInfo {

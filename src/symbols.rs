@@ -1,4 +1,4 @@
-use miette::{Diagnostic, GraphicalReportHandler, SourceSpan};
+use miette::{Diagnostic, SourceSpan};
 
 /*
     Symbol objects for beesafe
@@ -130,17 +130,6 @@ impl ErrorObj {
                     "{:?}",
                     miette::Report::new(info.clone()).with_source_code(info.src)
                 ),
-                // RuntimeError::UndefinedIdentifier(info) => {
-                //     println!("Debug info: {:?}", info);  
-                //     let report = miette::Report::new(info.clone()).with_source_code(info.src);
-                //     let mut out = String::new();
-                //     GraphicalReportHandler::new()
-                //         .render_report(&mut out, &*report)
-                //         .unwrap_or_else(|e| {
-                //             println!("Error rendering report: {}", e);
-                //         });
-                //     print!("{out}");
-                // }
             },
             None => (),
         }

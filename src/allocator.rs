@@ -141,6 +141,12 @@ impl<T: Markable<T>> Allocator<T> for Heap<T> {
         // Mark this cell
         self.marked_cells.insert(ptr);
 
+        // Also set the debug `marked` flag on the stored Cell for visibility
+        if let Some(mut cell) = self.cells.take(&Cell { ptr, marked: false }) {
+            cell.marked = true;
+            self.cells.insert(cell);
+        }
+
         if let Some(obj) = self.view_cell(Cell { ptr, marked: false }) {
             for reference in obj.get_references() {
                 self.mark_recursive(reference.ptr);

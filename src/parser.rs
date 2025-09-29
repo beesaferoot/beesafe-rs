@@ -90,7 +90,7 @@ impl<'a> Parser<'a> {
             src: self.source(),
             span: (
                 self.current_token.as_ref().unwrap().offset as usize,
-                self.current_token.as_ref().unwrap().lexeme.len() as usize,
+                self.current_token.as_ref().unwrap().lexeme.len(),
             )
                 .into(),
             error_type: ParseError::InvalidSyntax(format!(
@@ -103,12 +103,12 @@ impl<'a> Parser<'a> {
 
     fn parse_index_expr(&mut self) -> Node {
         let lineno = self.lexer.lineno();
-        let mut current_token = self.current_token.clone().unwrap();
 
         let object = self.create_node(&TType::Id);
 
         self.consume_next_token();
-        current_token = self.current_token.clone().unwrap();
+
+        let mut current_token = self.current_token.clone().unwrap();
 
         if current_token.ttype != TType::Lbracket {
             let span = (current_token.offset as usize, current_token.lexeme.len()).into();
@@ -483,7 +483,7 @@ impl<'a> Parser<'a> {
             }),
             _ => Node::Error(Error {
                 src: self.source(),
-                span: (op_token.offset as usize, op_token.lexeme.len() as usize).into(),
+                span: (op_token.offset as usize, op_token.lexeme.len()).into(),
                 error_type: ParseError::UndeterminedType(format!(
                     "couldn't parse binary operator type \n {}",
                     op_token.error_fmt(&self.source())
@@ -781,7 +781,7 @@ impl<'a> Parser<'a> {
             if current_token.ttype != TType::Lparen {
                 let span = (
                     current_token.offset as usize,
-                    current_token.lexeme.len() as usize,
+                    current_token.lexeme.len(),
                 )
                     .into();
                 let err = Error::new(
@@ -811,7 +811,7 @@ impl<'a> Parser<'a> {
                 if current_token.ttype != TType::Comma {
                     let span = (
                         current_token.offset as usize,
-                        current_token.lexeme.len() as usize,
+                        current_token.lexeme.len(),
                     )
                         .into();
                     let err = Error::new(
@@ -855,7 +855,7 @@ impl<'a> Parser<'a> {
         if current_token.ttype != TType::Lparen {
             let span = (
                 current_token.offset as usize,
-                current_token.lexeme.len() as usize,
+                current_token.lexeme.len(),
             )
                 .into();
             let err = Error::new(
@@ -884,7 +884,7 @@ impl<'a> Parser<'a> {
                 if current_token.ttype != TType::Comma {
                     let span = (
                         current_token.offset as usize,
-                        current_token.lexeme.len() as usize,
+                        current_token.lexeme.len(),
                     )
                         .into();
                     let err = Error::new(
@@ -904,7 +904,7 @@ impl<'a> Parser<'a> {
             if current_token.ttype != TType::Id {
                 let span = (
                     current_token.offset as usize,
-                    current_token.lexeme.len() as usize,
+                    current_token.lexeme.len(),
                 )
                     .into();
                 let err = Error::new(
@@ -935,7 +935,7 @@ impl<'a> Parser<'a> {
             _ => {
                 let span = (
                     current_token.offset as usize,
-                    current_token.lexeme.len() as usize,
+                    current_token.lexeme.len(),
                 )
                     .into();
                 let err = Error::new(
@@ -975,7 +975,7 @@ impl<'a> Parser<'a> {
                 if current_token.ttype != TType::Comma {
                     let span = (
                         current_token.offset as usize,
-                        current_token.lexeme.len() as usize,
+                        current_token.lexeme.len(),
                     )
                         .into();
                     let err = Error::new(
@@ -1012,7 +1012,7 @@ impl<'a> Parser<'a> {
         if current_token.ttype != TType::Id {
             let span = (
                 current_token.offset as usize,
-                current_token.lexeme.len() as usize,
+                current_token.lexeme.len(),
             )
                 .into();
             let err = Error::new(
@@ -1063,7 +1063,7 @@ impl<'a> Parser<'a> {
             _ => {
                 let span = (
                     current_token.offset as usize,
-                    current_token.lexeme.len() as usize,
+                    current_token.lexeme.len(),
                 )
                     .into();
                 let err = Error::new(
@@ -1097,7 +1097,7 @@ impl<'a> Parser<'a> {
             Some(token) => {
                 if token.ttype != TType::Id {
                     let span: SourceSpan =
-                        (token.offset as usize, token.lexeme.len() as usize).into();
+                        (token.offset as usize, token.lexeme.len()).into();
                     let err = Error::new(
                         self.source(),
                         span,
@@ -1131,7 +1131,7 @@ impl<'a> Parser<'a> {
                 self.source(),
                 (
                     current_token.offset as usize,
-                    current_token.lexeme.len() as usize,
+                    current_token.lexeme.len(),
                 )
                     .into(),
                 ParseError::InvalidSyntax("".to_string()),
@@ -1187,7 +1187,7 @@ impl<'a> Parser<'a> {
         if cur_token.ttype != TType::Range {
             return Err(Error::new(
                 self.source(),
-                (cur_token.offset as usize, cur_token.lexeme.len() as usize).into(),
+                (cur_token.offset as usize, cur_token.lexeme.len()).into(),
                 ParseError::InvalidSyntax("".to_string()),
             ));
         }
@@ -1199,7 +1199,7 @@ impl<'a> Parser<'a> {
         if cur_token.ttype != TType::Num {
             return Err(Error::new(
                 self.source(),
-                (cur_token.offset as usize, cur_token.lexeme.len() as usize).into(),
+                (cur_token.offset as usize, cur_token.lexeme.len()).into(),
                 ParseError::InvalidSyntax("".to_string()),
             ));
         }

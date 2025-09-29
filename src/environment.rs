@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::allocator::Cell;
 use crate::symbols::Object;
+use std::collections::HashMap;
 
 pub struct Environment {
     depth: i32,
@@ -10,17 +10,18 @@ pub struct Environment {
 
 impl Environment {
     pub fn new() -> Self {
-       Self {
+        Self {
             depth: 1,
             scopes: vec![HashMap::new()],
             scoping_limit: 50,
         }
     }
 
-    pub fn add(&mut self, identifier: &str, value: Cell<Object>) {
+    pub fn add(&mut self, identifier: &str, value: Cell<Object>) -> Option<Cell<Object>> {
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(identifier.to_string(), value);
+            return scope.insert(identifier.to_string(), value);
         }
+        None
     }
 
     pub fn get(&self, identifier: &str) -> Option<Cell<Object>> {
@@ -37,11 +38,14 @@ impl Environment {
         self.scopes.push(HashMap::new());
     }
 
-    pub fn pop_scope(&mut self) {
+    pub fn pop_scope(&mut self) -> Vec<Cell<Object>> {
         if self.depth > 1 {
             self.depth -= 1;
-            self.scopes.pop();
+            if let Some(scope) = self.scopes.pop() {
+                return scope.into_values().collect();
+            }
         }
+        Vec::new()
     }
 
     pub fn is_scoping_limit_exceded(&self) -> bool {
