@@ -1,7 +1,8 @@
-pub mod lexer;
+pub mod allocator;
 pub mod ast;
-pub mod parser;
 pub mod environment;
 pub mod executor;
+pub mod interpreter;
+pub mod lexer;
+pub mod parser;
 pub mod symbols;
-pub mod allocator;

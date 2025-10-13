@@ -211,7 +211,7 @@ impl<'a> Parser<'a> {
                 // Check if this is a function call
                 if self.peek_token.as_ref().unwrap().ttype == TType::Lparen {
                     let call_node = self.parse_call_expr();
-                    self.operand_stack.pop();
+                    // self.operand_stack.pop();
                     self.operand_stack.push(call_node);
                 } else if self.peek_token.as_ref().unwrap().ttype == TType::Lbracket {
                     let index_node = self.parse_index_expr();
@@ -779,11 +779,7 @@ impl<'a> Parser<'a> {
             // Next token should be '('
             current_token = self.current_token.as_ref().unwrap();
             if current_token.ttype != TType::Lparen {
-                let span = (
-                    current_token.offset as usize,
-                    current_token.lexeme.len(),
-                )
-                    .into();
+                let span = (current_token.offset as usize, current_token.lexeme.len()).into();
                 let err = Error::new(
                     self.source(),
                     span,
@@ -809,11 +805,7 @@ impl<'a> Parser<'a> {
 
             if !args.is_empty() {
                 if current_token.ttype != TType::Comma {
-                    let span = (
-                        current_token.offset as usize,
-                        current_token.lexeme.len(),
-                    )
-                        .into();
+                    let span = (current_token.offset as usize, current_token.lexeme.len()).into();
                     let err = Error::new(
                         self.source(),
                         span,
@@ -853,11 +845,7 @@ impl<'a> Parser<'a> {
 
         // Next token should be '('
         if current_token.ttype != TType::Lparen {
-            let span = (
-                current_token.offset as usize,
-                current_token.lexeme.len(),
-            )
-                .into();
+            let span = (current_token.offset as usize, current_token.lexeme.len()).into();
             let err = Error::new(
                 self.source(),
                 span,
@@ -882,11 +870,7 @@ impl<'a> Parser<'a> {
 
             if !params.is_empty() {
                 if current_token.ttype != TType::Comma {
-                    let span = (
-                        current_token.offset as usize,
-                        current_token.lexeme.len(),
-                    )
-                        .into();
+                    let span = (current_token.offset as usize, current_token.lexeme.len()).into();
                     let err = Error::new(
                         self.source(),
                         span,
@@ -902,11 +886,7 @@ impl<'a> Parser<'a> {
 
             let current_token = self.current_token.as_ref().unwrap().clone();
             if current_token.ttype != TType::Id {
-                let span = (
-                    current_token.offset as usize,
-                    current_token.lexeme.len(),
-                )
-                    .into();
+                let span = (current_token.offset as usize, current_token.lexeme.len()).into();
                 let err = Error::new(
                     self.source(),
                     span,
@@ -933,11 +913,7 @@ impl<'a> Parser<'a> {
                 Err(err) => return Node::Error(err),
             },
             _ => {
-                let span = (
-                    current_token.offset as usize,
-                    current_token.lexeme.len(),
-                )
-                    .into();
+                let span = (current_token.offset as usize, current_token.lexeme.len()).into();
                 let err = Error::new(
                     self.source(),
                     span,
@@ -973,11 +949,7 @@ impl<'a> Parser<'a> {
 
             if !elements.is_empty() {
                 if current_token.ttype != TType::Comma {
-                    let span = (
-                        current_token.offset as usize,
-                        current_token.lexeme.len(),
-                    )
-                        .into();
+                    let span = (current_token.offset as usize, current_token.lexeme.len()).into();
                     let err = Error::new(
                         self.source(),
                         span,
@@ -1010,11 +982,7 @@ impl<'a> Parser<'a> {
         // Next token should be an identifier (function name)
         let current_token = self.current_token.as_ref().unwrap().clone();
         if current_token.ttype != TType::Id {
-            let span = (
-                current_token.offset as usize,
-                current_token.lexeme.len(),
-            )
-                .into();
+            let span = (current_token.offset as usize, current_token.lexeme.len()).into();
             let err = Error::new(
                 self.source(),
                 span,
@@ -1061,11 +1029,7 @@ impl<'a> Parser<'a> {
                 Err(err) => return Node::Error(err),
             },
             _ => {
-                let span = (
-                    current_token.offset as usize,
-                    current_token.lexeme.len(),
-                )
-                    .into();
+                let span = (current_token.offset as usize, current_token.lexeme.len()).into();
                 let err = Error::new(
                     self.source(),
                     span,
@@ -1096,8 +1060,7 @@ impl<'a> Parser<'a> {
         match self.peek_token.clone() {
             Some(token) => {
                 if token.ttype != TType::Id {
-                    let span: SourceSpan =
-                        (token.offset as usize, token.lexeme.len()).into();
+                    let span: SourceSpan = (token.offset as usize, token.lexeme.len()).into();
                     let err = Error::new(
                         self.source(),
                         span,
@@ -1129,11 +1092,7 @@ impl<'a> Parser<'a> {
             let current_token = self.current_token.as_ref().unwrap();
             return Node::Error(Error::new(
                 self.source(),
-                (
-                    current_token.offset as usize,
-                    current_token.lexeme.len(),
-                )
-                    .into(),
+                (current_token.offset as usize, current_token.lexeme.len()).into(),
                 ParseError::InvalidSyntax("".to_string()),
             ));
         }
@@ -1241,7 +1200,6 @@ impl<'a> Parser<'a> {
                 continue;
             }
             let node = self.parse_stmt(&ttype);
-            // println!("pushing node: {:#?}", node);
             match node {
                 Node::Error(err) => self.errors.push(err),
                 _ => program.statements.push(node),

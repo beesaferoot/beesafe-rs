@@ -6,9 +6,9 @@ use beesafe::parser;
 #[test]
 fn test_expression() {
     let input = r#"
-        1 + 1 
-        2 - 3 + 5 
-        3 / 5 
+        1 + 1
+        2 - 3 + 5
+        3 / 5
         8 * 9
         -9
     "#;
@@ -338,7 +338,6 @@ fn test_function_calls_in_expressions() {
 
 #[test]
 fn test_not_operator() {
-
     let input = r#"
         !true
         !false
@@ -362,7 +361,7 @@ fn test_iterable_protocols() {
     let mut lexer = lexer::Lexer::new(input);
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
-    
+
     assert_eq!(program.statements.len(), 3);
 
     for stmt in &program.statements {
@@ -385,7 +384,7 @@ fn test_array_literals() {
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 2);
-    
+
     for stmt in &program.statements {
         match stmt {
             Node::Array(_) => (),
@@ -417,7 +416,7 @@ fn test_assignment_precedence_vs_comparison_and_call() {
         declare a
         a = 1 < 2 == true
         declare f
-        f = define(x){ x } 
+        f = define(x){ x }
         f(1 + (a = 3))
     "#;
     let mut lexer = lexer::Lexer::new(input);
@@ -430,12 +429,12 @@ fn test_assignment_precedence_vs_comparison_and_call() {
 #[test]
 fn test_else_if_chaining() {
     let input = r#"
-        if (1 < 0) { 
-            declare x 
-        } else if (2 < 0) { 
-         declare y 
-        } else { 
-            declare z 
+        if (1 < 0) {
+            declare x
+        } else if (2 < 0) {
+         declare y
+        } else {
+            declare z
         }
     "#;
     let mut lexer = lexer::Lexer::new(input);
@@ -458,6 +457,23 @@ fn test_index_expressions_and_assignment() {
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 4);
     assert!(!parser.has_errors());
+}
+
+#[test]
+fn test_expression_with_function_call() {
+    let input = r#"
+            fib(n-1) + fib(n-2)
+        "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert_eq!(program.statements.len(), 1);
+    assert!(!parser.has_errors());
+    
+    println!("{:?}", program.statements);
+    
+    let first_statement = &program.statements[0];
+    verify_node_type(first_statement, &NodeType::Add);
 }
 
 fn verify_node_type(node: &Node, expected_type: &NodeType) {

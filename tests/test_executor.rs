@@ -4,7 +4,6 @@ use beesafe::lexer;
 use beesafe::parser;
 use beesafe::symbols::Object;
 
-
 #[test]
 fn test_add_expression_eval() {
     let input_string = "1 + 3";
@@ -286,7 +285,7 @@ fn test_else_if_chaining_exec_else_branch() {
 #[test]
 fn test_invalid_function_call() {
     let input = r#"
-        print("hello")
+        printl("hello")
     "#;
     let mut lexer = lexer::Lexer::new(input);
     let mut parser = parser::Parser::new(&mut lexer);
@@ -297,7 +296,35 @@ fn test_invalid_function_call() {
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     match results.last().unwrap().as_ref() {
-        Object::Error(err) => err.visit(),
-        other => panic!("expected Error, got {:?}", other),
+        Object::Null => (),
+        other => panic!("expected Null from invalid function printl, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_recursive_function_call(){
+    let input = r#"
+        define fib(n){
+            if(n <= 0){
+                return 0
+            }
+            if(n == 1){
+                return 1
+            }
+            return fib(n-1) + fib(n-2)
+        }
+        print("fib(1): ", fib(3))
+    "#;
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.parse_program();
+    assert!(!parser.has_errors());
+
+    let mut env = environment::Environment::new();
+    let mut exec = executor::Executor::new(&mut env, &parser);
+    let results = exec.visit_program(&program);
+    match results.last().unwrap().as_ref() {
+        Object::Null => (),
+        v => panic!("expected Null from built-in print, got {:?}", v)
     }
 }

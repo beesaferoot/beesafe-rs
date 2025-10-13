@@ -100,10 +100,8 @@ impl<T: Markable<T>> Allocator<T> for Heap<T> {
     }
 
     fn collect_garbage(&mut self) {
-        println!("-- gc begin");
         self.mark_live_cells();
         self.sweep_unmarked_objects();
-        print!("-- gc end");
     }
 
     fn sweep_unmarked_objects(&mut self) {

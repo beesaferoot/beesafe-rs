@@ -116,7 +116,10 @@ impl<'l> Executor<'l> {
             Node::Call(func_call) => {
                 return self.visit_func_call(func_call);
             }
-            _ => todo!(),
+            _ => {
+                println!("todo node {:?}", node);
+                todo!()
+            }
         }
     }
 
@@ -131,10 +134,17 @@ impl<'l> Executor<'l> {
                     for cell in removed {
                         self.heap.remove_root(&cell);
                     }
-                    return val;
+
+                    return self.heap.allocate_cell(Object::Return(val));
                 }
                 _ => {
-                    let _ = self.visit_expr(stmt);
+                    let r = self.visit_expr(stmt);
+
+                    match r.as_ref() {
+                        Object::Return(ret) => return *ret,
+                        Object::Error(_) => return r,
+                        _ => (),
+                    };
                 }
             }
         }
@@ -310,6 +320,13 @@ impl<'l> Executor<'l> {
             }
         };
 
+        // handle built-ins
+        if let Node::Ident(id) = callee_node {
+            if self.is_builtin_function(id.value.as_str()) {
+                return self.visit_builtin_function(id, func_call);
+            }
+        }
+
         let callee_cell = self.visit_expr(callee_node);
 
         match callee_cell.as_ref() {
@@ -384,8 +401,10 @@ impl<'l> Executor<'l> {
                 for cell in removed {
                     self.heap.remove_root(&cell);
                 }
-                self.heap.force_gc();
-                return result;
+                match result.as_ref() {
+                    Object::Return(ret) => *ret,
+                    _ => result,
+                }
             }
             _ => {
                 let removed = self.global_env.pop_scope();
@@ -400,6 +419,43 @@ impl<'l> Executor<'l> {
                     },
                 );
             }
+        }
+    }
+
+    fn is_builtin_function(&self, name: &str) -> bool {
+        match name {
+            "print" => true,
+            _ => false,
+        }
+    }
+
+    fn visit_builtin_function(&mut self, id: &Ident, func_call: &Call) -> Cell<Object> {
+        match id.value.as_str() {
+            "print" => {
+                let mut printed: Vec<String> = Vec::with_capacity(func_call.args.len());
+                for arg in &func_call.args {
+                    let c = self.visit_expr(arg);
+                    match self.resolve_display_object(&c) {
+                        Some(s) => printed.push(s),
+                        None => return c,
+                    }
+                }
+                println!("{}", printed.join(" "));
+                return self.heap.allocate_cell(Object::Null);
+            }
+            _ => panic!("Error: unknown builtin function call {}", id.value),
+        }
+    }
+
+    fn resolve_display_object(&self, obj: &Cell<Object>) -> Option<String> {
+        match obj.as_ref() {
+            Object::Null => Some("null".to_string()),
+            Object::Bool(b) => Some(format!("{}", b)),
+            Object::Number(n) => Some(format!("{}", n)),
+            Object::String(s) => Some(s.clone()),
+            Object::Error(_) => None,
+            Object::Return(ret) => self.resolve_display_object(ret),
+            other => Some(format!("{:?}", other)),
         }
     }
 
@@ -575,15 +631,9 @@ impl<'l> Executor<'l> {
         let left_node = self.visit_expr(&op.left);
         let right_node = self.visit_expr(&op.right);
 
-        let lval = match left_node.as_ref() {
-            Object::Number(val) => Ok(val),
-            _ => Err("expected a number type"),
-        };
+        let lval = self.extract_number(&left_node);
+        let rval = self.extract_number(&right_node);
 
-        let rval = match right_node.as_ref() {
-            Object::Number(val) => Ok(val),
-            _ => Err("expected a number type"),
-        };
         match (lval, rval) {
             (Ok(lval), Ok(rval)) => self.heap.allocate_cell(Object::Number(lval + rval)),
             (_, _) => self.emit_type_error(
@@ -604,15 +654,9 @@ impl<'l> Executor<'l> {
         let left_node = self.visit_expr(&op.left);
         let right_node = self.visit_expr(&op.right);
 
-        let lval = match left_node.as_ref() {
-            Object::Number(val) => Ok(val),
-            _ => Err("expected a number type"),
-        };
+        let lval = self.extract_number(&left_node);
+        let rval = self.extract_number(&right_node);
 
-        let rval = match right_node.as_ref() {
-            Object::Number(val) => Ok(val),
-            _ => Err("expected a number type"),
-        };
         match (lval, rval) {
             (Ok(lval), Ok(rval)) => self.heap.allocate_cell(Object::Number(lval - rval)),
             (_, _) => self.emit_type_error(
@@ -633,15 +677,8 @@ impl<'l> Executor<'l> {
         let left_node = self.visit_expr(&op.left);
         let right_node = self.visit_expr(&op.right);
 
-        let lval = match left_node.as_ref() {
-            Object::Number(val) => Ok(val),
-            _ => Err("expected a number type"),
-        };
-
-        let rval = match right_node.as_ref() {
-            Object::Number(val) => Ok(val),
-            _ => Err("expected a number type"),
-        };
+        let lval = self.extract_number(&left_node);
+        let rval = self.extract_number(&right_node);
 
         match (lval, rval) {
             (Ok(lval), Ok(rval)) => self.heap.allocate_cell(Object::Number(lval * rval)),
@@ -664,19 +701,12 @@ impl<'l> Executor<'l> {
         let left_node = self.visit_expr(&op.left);
         let right_node = self.visit_expr(&op.right);
 
-        let lval = match left_node.as_ref() {
-            Object::Number(val) => Ok(val),
-            _ => Err("expected a number type"),
-        };
-
-        let rval = match right_node.as_ref() {
-            Object::Number(val) => Ok(val),
-            _ => Err("expected a number type"),
-        };
+        let lval = self.extract_number(&left_node);
+        let rval = self.extract_number(&right_node);
 
         match (lval, rval) {
             (Ok(lval), Ok(rval)) => {
-                if rval == &0 {
+                if rval == 0 {
                     return self.emit_division_by_zero_error(NodeParseInfo {
                         lineno: op.lineno,
                         token: op.token.clone(),
@@ -691,6 +721,22 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
+        }
+    }
+
+    fn resolve_func_expr(
+        &mut self,
+        func_type: &FunctionType,
+    ) -> Result<Cell<Object>, &'static str> {
+        match func_type {
+            FunctionType::Expr(func) => {
+                let f_ret = self.visit_func_expr(func);
+                match f_ret.as_ref() {
+                    Object::Number(_) => Ok(f_ret.clone()),
+                    _ => Err("Cannot not add type"),
+                }
+            }
+            _ => Err("Unexpected function declaration found"),
         }
     }
 
@@ -787,6 +833,24 @@ impl<'l> Executor<'l> {
             })),
             type_error: None,
         }))
+    }
+
+    fn extract_number(&mut self, obj: &Cell<Object>) -> Result<i32, &'static str> {
+        match obj.as_ref() {
+            Object::Number(val) => Ok(*val),
+            Object::Function(func_type) => {
+                let ret = self.resolve_func_expr(func_type)?;
+                match ret.as_ref() {
+                    Object::Number(v) => Ok(*v),
+                    _ => unreachable!("Unexpected code path"),
+                }
+            }
+            Object::Error(obj) => {
+                obj.visit();
+                Err("expected a number type")
+            }
+            _ => Err("expected a number type"),
+        }
     }
 }
 

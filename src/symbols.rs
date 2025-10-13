@@ -22,6 +22,7 @@ pub enum Object {
     Range(RangeObj),
     Iterator(IteratorObj),
     Function(FunctionType),
+    Return(Cell<Object>),
 }
 
 #[derive(Debug, Clone)]
