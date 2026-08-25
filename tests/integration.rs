@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[test]
-fn golden() {
+fn integration() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cases");
     let mut cases: Vec<PathBuf> = fs::read_dir(&dir)
         .unwrap()
