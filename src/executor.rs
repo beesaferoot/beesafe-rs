@@ -14,9 +14,11 @@ pub struct Executor<'l> {
 
 impl<'l> Executor<'l> {
     pub fn new(env: &'l mut Environment, parser: &'l Parser<'l>) -> Self {
+        let mut heap = Heap::new();
+        heap.set_gc_threshold(1000);
         Self {
             global_env: env,
-            heap: Heap::new(),
+            heap,
             parser,
         }
     }
@@ -124,33 +126,21 @@ impl<'l> Executor<'l> {
     }
 
     fn visit_block(&mut self, block: &Block) -> Cell<Object> {
-        self.global_env.push_scope();
         for stmt in &block.statements {
             match stmt.as_ref() {
                 Node::Return(ret) => {
                     let val = self.visit_expr(&ret.value);
-                    self.heap.add_root(val);
-                    let removed = self.global_env.pop_scope();
-                    for cell in removed {
-                        self.heap.remove_root(&cell);
-                    }
-
                     return self.heap.allocate_cell(Object::Return(val));
                 }
                 _ => {
                     let r = self.visit_expr(stmt);
-
                     match r.as_ref() {
-                        Object::Return(ret) => return *ret,
+                        Object::Return(_) => return r,
                         Object::Error(_) => return r,
                         _ => (),
                     };
                 }
             }
-        }
-        let removed = self.global_env.pop_scope();
-        for cell in removed {
-            self.heap.remove_root(&cell);
         }
         self.heap.allocate_cell(Object::Null)
     }
@@ -299,14 +289,6 @@ impl<'l> Executor<'l> {
     }
 
     fn visit_func_call(&mut self, func_call: &Call) -> Cell<Object> {
-        self.global_env.push_scope();
-        if self.global_env.is_scoping_limit_exceded() {
-            return self.emit_recursion_limit_reached_error(NodeParseInfo {
-                lineno: func_call.lineno,
-                token: func_call.token.clone(),
-            });
-        }
-
         let callee_node = match func_call.func {
             Some(ref node) => node.as_ref(),
             None => {
@@ -348,6 +330,16 @@ impl<'l> Executor<'l> {
         let mut arg_cells: Vec<Cell<Object>> = Vec::with_capacity(func_call.args.len());
         for arg in &func_call.args {
             arg_cells.push(self.visit_expr(arg));
+        }
+
+        // Push scope AFTER evaluating arguments (arguments are evaluated in caller's scope)
+        self.global_env.push_scope();
+        if self.global_env.is_scoping_limit_exceded() {
+            self.global_env.pop_scope();
+            return self.emit_recursion_limit_reached_error(NodeParseInfo {
+                lineno: func_call.lineno,
+                token: func_call.token.clone(),
+            });
         }
 
         let callee_obj = callee_cell.as_ref().clone();
@@ -758,21 +750,22 @@ impl<'l> Executor<'l> {
     }
 
     fn emit_type_error(&mut self, msg: String, parse_info: NodeParseInfo) -> Cell<Object> {
-        let mut err_type = ErrType::TypeError("Unknown type error".to_owned());
-
-        let error_msg = match parse_info.token.ttype {
-            TType::Num => {
-                err_type = ErrType::TypeError("cannot use a number here".to_owned());
+        let (err_type, error_msg) = match parse_info.token.ttype {
+            TType::Num => (
+                ErrType::TypeError("cannot use a number here".to_owned()),
                 format!(
                     "Type Error at line {}: {}\nOffending number: {}",
                     parse_info.lineno, msg, parse_info.token.lexeme
-                )
-            }
-            TType::Plus => {
-                err_type = ErrType::TypeError("Oops can't add incompatible types".to_owned());
-                format!("Type Error at line {}: {}\n", parse_info.lineno, msg)
-            }
-            _ => String::from(""),
+                ),
+            ),
+            TType::Plus => (
+                ErrType::TypeError("Oops can't add incompatible types".to_owned()),
+                format!("Type Error at line {}: {}\n", parse_info.lineno, msg),
+            ),
+            _ => (
+                ErrType::TypeError(msg.clone()),
+                format!("Type Error at line {}: {}\n", parse_info.lineno, msg),
+            ),
         };
         let offset = parse_info.token.offset;
         self.heap.allocate_cell(Object::Error(ErrorObj {
