@@ -1,0 +1,8 @@
+for c in "abc" {
+    print("c =", c)
+}
+
+// ---
+// c = a
+// c = b
+// c = c

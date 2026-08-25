@@ -1,0 +1,10 @@
+define outer() {
+    define inner() {
+        return 7
+    }
+    return inner()
+}
+print("outer() =", outer())
+
+// ---
+// outer() = 7

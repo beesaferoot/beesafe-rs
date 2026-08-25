@@ -1,0 +1,13 @@
+init double = define(x) {
+    return x * 2
+}
+print("double(5) =", double(5))
+
+init immediate = define() {
+    return "flower"
+}()
+print(immediate)
+
+// ---
+// double(5) = 10
+// flower

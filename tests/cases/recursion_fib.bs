@@ -1,0 +1,17 @@
+define fib(n) {
+    if (n <= 0) {
+        return 0
+    }
+    else if (n == 1) {
+        return 1
+    }
+    return fib(n-1) + fib(n-2)
+}
+print("fib(0) =", fib(0))
+print("fib(1) =", fib(1))
+print("fib(6) =", fib(6))
+
+// ---
+// fib(0) = 0
+// fib(1) = 1
+// fib(6) = 8

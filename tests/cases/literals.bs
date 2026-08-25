@@ -1,0 +1,14 @@
+print(null)
+print(true)
+print(false)
+print(42)
+print("double quoted")
+print('single quoted')
+
+// ---
+// null
+// true
+// false
+// 42
+// double quoted
+// single quoted

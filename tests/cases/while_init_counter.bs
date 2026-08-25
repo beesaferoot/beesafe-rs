@@ -1,0 +1,12 @@
+init i = 0
+while (i < 3) {
+    print("i =", i)
+    init i = i + 1
+}
+print("done, i =", i)
+
+// ---
+// i = 0
+// i = 1
+// i = 2
+// done, i = 3

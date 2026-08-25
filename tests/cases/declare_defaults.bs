@@ -1,0 +1,8 @@
+declare a, b
+print(a, b)
+init a = 1
+print(a, b)
+
+// ---
+// null null
+// 1 null

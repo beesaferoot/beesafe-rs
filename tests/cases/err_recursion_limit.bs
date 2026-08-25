@@ -1,0 +1,7 @@
+define forever(n) {
+    return forever(n)
+}
+print(forever(1))
+
+// ---
+// !error

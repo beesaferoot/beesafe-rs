@@ -296,8 +296,8 @@ fn test_invalid_function_call() {
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     match results.last().unwrap().as_ref() {
-        Object::Null => (),
-        other => panic!("expected Null from invalid function printl, got {:?}", other),
+        Object::Error(_) => (),
+        other => panic!("expected Error for undefined function printl, got {:?}", other),
     }
 }
 

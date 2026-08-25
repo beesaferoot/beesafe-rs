@@ -1,0 +1,8 @@
+// leading comment
+print(1) // trailing comment
+// another
+print(2)
+
+// ---
+// 1
+// 2
