@@ -1,9 +1,14 @@
 // Each case in tests/cases is one .bs file: the program, then `// ---`, then the
-// expected stdout as comments. `!error` means a diagnostic is expected on stderr.
+// expected stdout as comments. `!error` means a diagnostic is expected on stderr,
+// `!panic` a crash, `!timeout` a run that outlived TIMEOUT.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[test]
 fn integration() {
@@ -29,11 +34,25 @@ fn integration() {
 }
 
 fn run(case: &Path) -> String {
-    let out = Command::new(env!("CARGO_BIN_EXE_beesafe"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_beesafe"))
         .arg(case)
         .env("NO_COLOR", "1")
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap();
+
+    let deadline = Instant::now() + TIMEOUT;
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return String::from("!timeout\n");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let out = child.wait_with_output().unwrap();
     let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr);
     if stderr.contains("panicked at") {
