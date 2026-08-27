@@ -1,0 +1,15 @@
+print("a\nb")
+print("tab:\tend")
+print("say \"hi\"")
+print('it\'s')
+print("back\\slash")
+print("unknown \d escape")
+
+// ---
+// a
+// b
+// tab:	end
+// say "hi"
+// it's
+// back\slash
+// unknown d escape

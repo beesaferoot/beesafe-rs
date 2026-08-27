@@ -422,10 +422,9 @@ impl<'a> Parser<'a> {
             _ => Node::Error(Error {
                 src: self.source(),
                 span: (offset as usize, lexeme.len()).into(),
-                error_type: ParseError::UndeterminedType(format!(
-                    "couldn't parse the terminal type\n {}",
-                    current_token.error_fmt(&self.source())
-                )),
+                error_type: ParseError::UndeterminedType(
+                    "couldn't parse the terminal type".to_string(),
+                ),
             }),
         }
     }
@@ -440,10 +439,9 @@ impl<'a> Parser<'a> {
             _ => Node::Error(Error {
                 src: self.source(),
                 span: (op_token.offset as usize, op_token.lexeme.len()).into(),
-                error_type: ParseError::UndeterminedType(format!(
-                    "couldn't parse uniary operator type \n {}",
-                    op_token.error_fmt(&self.source())
-                )),
+                error_type: ParseError::UndeterminedType(
+                    "couldn't parse uniary operator type".to_string(),
+                ),
             }),
         }
     }
@@ -484,10 +482,9 @@ impl<'a> Parser<'a> {
             _ => Node::Error(Error {
                 src: self.source(),
                 span: (op_token.offset as usize, op_token.lexeme.len()).into(),
-                error_type: ParseError::UndeterminedType(format!(
-                    "couldn't parse binary operator type \n {}",
-                    op_token.error_fmt(&self.source())
-                )),
+                error_type: ParseError::UndeterminedType(
+                    "couldn't parse binary operator type".to_string(),
+                ),
             }),
         }
     }

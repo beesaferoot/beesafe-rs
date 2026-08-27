@@ -69,7 +69,7 @@ impl Token {
         Self {
             lexeme: lexeme.to_string(),
             ttype: ttype,
-            offset: offset,
+            offset,
         }
     }
 
@@ -77,35 +77,10 @@ impl Token {
         Self {
             lexeme: lexeme.to_string(),
             ttype: ttype,
-            offset: offset,
+            offset,
         }
     }
 
-    pub fn error_fmt(&self, src: &str) -> String {
-        let pos = self.offset as usize;
-        let mut leftside = &src[..pos];
-        let mut rest = &src[pos..];
-        let mut err_str = String::from("");
-        let mut temp: Vec<&str> = leftside.lines().collect();
-
-        leftside = temp[temp.len() - 1];
-        temp = rest.lines().collect();
-        rest = temp[0];
-
-        let mut btick = String::from("\n");
-
-        for _ in 0..=leftside.len() {
-            btick.push(' ');
-        }
-
-        for _ in 0..self.lexeme.len() {
-            btick.push('^');
-        }
-        err_str.push_str(leftside);
-        err_str.push_str(rest);
-        err_str.push_str(&btick);
-        err_str
-    }
 }
 
 impl Lexer {
@@ -140,43 +115,44 @@ impl Lexer {
     // return next available token
     pub fn next_token(&mut self) -> Token {
         let ch = self.read_char_no_withspace();
+        let offset = self.read_position - ch.len_utf8() as i32;
         match ch {
             '\0' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Eob,
-                offset: self.read_position - 1,
+                offset,
             },
             '\n' => {
                 self.line_no += 1;
                 Token {
                     lexeme: ch.to_string(),
                     ttype: TType::Newline,
-                    offset: self.read_position - 1,
+                    offset,
                 }
             }
             '+' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Plus,
-                offset: self.read_position - 1,
+                offset,
             },
             '-' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Minus,
-                offset: self.read_position - 1,
+                offset,
             },
             '*' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Asterisk,
-                offset: self.read_position - 1,
+                offset,
             },
             '/' => {
-                let offset = self.read_position - 1;
                 if self.peek_char() == '/' {
                     self.read_char();
                     let mut next = self.read_char();
                     while next != '\n' && next != '\0' {
                         next = self.read_char();
                     }
+                    // The comment ends at the newline, so that is the token's offset.
                     if next == '\n' {
                         self.line_no += 1;
                         return Token::from("\n", TType::Newline, self.read_position - 1);
@@ -186,14 +162,13 @@ impl Lexer {
                 Token::from_char(ch, TType::Div, offset)
             },
             '=' => {
-                let offset = self.read_position - 1;
                 if self.peek_char() == '=' {
                     let mut op = String::from(ch);
                     op.push(self.read_char());
                     return Token {
                         lexeme: op,
                         ttype: TType::Eq,
-                        offset: offset,
+                        offset,
                     };
                 }
                 Token::from_char(ch, TType::Assign, offset)
@@ -201,40 +176,39 @@ impl Lexer {
             ',' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Comma,
-                offset: self.read_position - 1,
+                offset,
             },
             '{' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Lbrace,
-                offset: self.read_position - 1,
+                offset,
             },
             '}' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Rbrace,
-                offset: self.read_position - 1,
+                offset,
             },
             '(' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Lparen,
-                offset: self.read_position - 1,
+                offset,
             },
             ')' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Rparen,
-                offset: self.read_position - 1,
+                offset,
             },
             '[' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Lbracket,
-                offset: self.read_position - 1,
+                offset,
             },
             ']' => Token {
                 lexeme: ch.to_string(),
                 ttype: TType::Rbracket,
-                offset: self.read_position - 1,
+                offset,
             },
             '<' => {
-                let offset = self.read_position - 1;
                 if self.peek_char() == '=' {
                     let mut op = String::from(ch);
                     op.push(self.read_char());
@@ -247,7 +221,6 @@ impl Lexer {
                 Token::from_char(ch, TType::Lt, offset)
             }
             '>' => {
-                let offset = self.read_position - 1;
                 if self.peek_char() == '=' {
                     let mut op = String::from(ch);
                     op.push(self.read_char());
@@ -260,7 +233,6 @@ impl Lexer {
                 Token::from_char(ch, TType::Gt, offset)
             }
             '!' => {
-                let offset = self.read_position - 1;
                 if self.peek_char() == '=' {
                     let mut op = String::from(ch);
                     op.push(self.read_char());
@@ -273,7 +245,6 @@ impl Lexer {
                 Token::from_char(ch, TType::Bang, offset)
             }
             '.' => {
-                let offset = self.read_position - 1;
                 if self.peek_char() == '.' {
                     let mut op = String::from(ch);
                     op.push(self.read_char());
@@ -286,13 +257,12 @@ impl Lexer {
                 Token::from_char(ch, TType::Invalid, offset)
             }
             _ => {
-                let offset = self.read_position - 1;
                 if ch.is_alphabetic() || ch == '_' {
-                    self.read_identifer(ch)
+                    self.read_identifer(ch, offset)
                 } else if ch.is_numeric() {
-                    self.read_number(ch)
+                    self.read_number(ch, offset)
                 } else if ch == '\'' || ch == '\"' {
-                    self.read_string_literal(ch)
+                    self.read_string_literal(ch, offset)
                 } else {
                     Token::from_char(ch, TType::Invalid, offset)
                 }
@@ -301,24 +271,22 @@ impl Lexer {
     }
 
     fn peek_char(&self) -> char {
-        let pos = self.read_position as usize;
-        if self.source.len() > pos {
-            let s = &self.source[pos..];
-            return s.chars().next().unwrap_or('\0');
-        }
-        '\0'
+        self.rest().chars().next().unwrap_or('\0')
     }
 
+    // read_position is a byte offset, so it advances by the char's utf-8 width.
     fn read_char(&mut self) -> char {
-        let pos = self.read_position as usize;
-        let s = &self.source[pos..];
-        match s.chars().next() {
+        match self.rest().chars().next() {
             Some(ch) => {
-                self.read_position += 1;
+                self.read_position += ch.len_utf8() as i32;
                 ch
             }
             None => '\0',
         }
+    }
+
+    fn rest(&self) -> &'static str {
+        &self.source[self.read_position as usize..]
     }
 
     fn read_char_no_withspace(&mut self) -> char {
@@ -329,8 +297,7 @@ impl Lexer {
         ch
     }
 
-    fn read_identifer(&mut self, ch: char) -> Token {
-        let offset = self.read_position - 1;
+    fn read_identifer(&mut self, ch: char, offset: i32) -> Token {
         let mut ident = String::from(ch);
         let mut look_ahead: char;
         while self.peek_char().is_alphanumeric() || self.peek_char() == '_' {
@@ -355,8 +322,7 @@ impl Lexer {
         }
     }
 
-    fn read_number(&mut self, ch: char) -> Token {
-        let offset = self.read_position - 1;
+    fn read_number(&mut self, ch: char, offset: i32) -> Token {
         let mut num_literal = String::from(ch);
         let mut look_ahead: char;
         while self.peek_char().is_numeric() {
@@ -370,20 +336,28 @@ impl Lexer {
         }
     }
 
-    fn read_string_literal(&mut self, ch: char) -> Token {
-        let offset = self.read_position - 1;
-        let mut str_literal = String::from("");
-
-        while self.peek_char() != ch {
-            str_literal.push(self.read_char())
+    fn read_string_literal(&mut self, quote: char, offset: i32) -> Token {
+        let mut literal = String::new();
+        loop {
+            match self.read_char() {
+                c if c == quote => break,
+                // Unterminated: report the opening quote and what we managed to read.
+                '\0' | '\n' => {
+                    let mut lexeme = String::from(quote);
+                    lexeme.push_str(&literal);
+                    return Token::from(&lexeme, TType::Invalid, offset);
+                }
+                '\\' => match self.read_char() {
+                    'n' => literal.push('\n'),
+                    't' => literal.push('\t'),
+                    'r' => literal.push('\r'),
+                    '\0' => return Token::from(&literal, TType::Invalid, offset),
+                    other => literal.push(other),
+                },
+                c => literal.push(c),
+            }
         }
-        // move read position one step forward to cover the closing quote
-        self.read_char();
-        Token {
-            lexeme: str_literal,
-            ttype: TType::Literal,
-            offset,
-        }
+        Token::from(&literal, TType::Literal, offset)
     }
 
     // create table for keywords

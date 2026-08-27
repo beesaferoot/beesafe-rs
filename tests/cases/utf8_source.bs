@@ -1,0 +1,9 @@
+print("café")
+print("a 🐝 b")
+init café = 5
+print(café)
+
+// ---
+// café
+// a 🐝 b
+// 5
