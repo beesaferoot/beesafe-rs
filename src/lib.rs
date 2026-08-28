@@ -1,6 +1,5 @@
 pub mod allocator;
 pub mod ast;
-pub mod cheney;
 pub mod environment;
 pub mod executor;
 pub mod interpreter;
