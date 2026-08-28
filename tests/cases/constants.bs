@@ -1,0 +1,26 @@
+init a = 5
+init b = a
+a = 6
+print(a, b)
+
+init big = 5000
+init big2 = big
+big = 6000
+print(big, big2)
+
+init t = true
+t = false
+print(t, true, false)
+
+declare z
+z = 1
+print(z, null)
+
+print(0 - 200, 1024, 1025, 5000 - 4999)
+
+// ---
+// 6 5
+// 6000 5000
+// false true false
+// 1 null
+// -200 1024 1025 1

@@ -6,20 +6,71 @@ use crate::lexer::Token;
 use crate::parser::Parser;
 use crate::symbols::*;
 
+// Interned integer range. Loop counters and small literals dominate allocation,
+// so these cover most of it.
+const SMALL_INT_MIN: i32 = -128;
+const SMALL_INT_MAX: i32 = 1024;
+
 pub struct Executor<'l> {
     global_env: &'l mut Environment,
     heap: Heap<Object>,
     parser: &'l Parser<'l>,
+    null: Cell<Object>,
+    booleans: [Cell<Object>; 2],
+    small_ints: Vec<Cell<Object>>,
 }
 
 impl<'l> Executor<'l> {
     pub fn new(env: &'l mut Environment, parser: &'l Parser<'l>) -> Self {
         let mut heap = Heap::new();
         heap.set_gc_threshold(1000);
+        let null = heap.intern(Object::Null);
+        let booleans = [
+            heap.intern(Object::Bool(false)),
+            heap.intern(Object::Bool(true)),
+        ];
+        let small_ints = (SMALL_INT_MIN..=SMALL_INT_MAX)
+            .map(|n| heap.intern(Object::Number(n)))
+            .collect();
         Self {
             global_env: env,
             heap,
             parser,
+            null,
+            booleans,
+            small_ints,
+        }
+    }
+
+    fn null(&self) -> Cell<Object> {
+        self.null
+    }
+
+    fn boolean(&self, value: bool) -> Cell<Object> {
+        self.booleans[value as usize]
+    }
+
+    fn number(&mut self, value: i32) -> Cell<Object> {
+        if (SMALL_INT_MIN..=SMALL_INT_MAX).contains(&value) {
+            return self.small_ints[(value - SMALL_INT_MIN) as usize];
+        }
+        self.heap.allocate_cell(Object::Number(value))
+    }
+
+    // Constants are shared, so returning the interned cell keeps value semantics
+    // while allocating nothing. Everything else still gets a private copy.
+    fn constant(&mut self, obj: &Object) -> Option<Cell<Object>> {
+        match obj {
+            Object::Null => Some(self.null()),
+            Object::Bool(b) => Some(self.boolean(*b)),
+            Object::Number(n) => {
+                if (SMALL_INT_MIN..=SMALL_INT_MAX).contains(n) {
+                    Some(self.number(*n))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 
@@ -56,9 +107,9 @@ impl<'l> Executor<'l> {
                     },
                 ),
             },
-            Node::Number(num) => self.heap.allocate_cell(Object::Number(num.value)),
-            Node::Boolean(v) => self.heap.allocate_cell(Object::Bool(v.value)),
-            Node::Null(_) => self.heap.allocate_cell(Object::Null),
+            Node::Number(num) => self.number(num.value),
+            Node::Boolean(v) => self.boolean(v.value),
+            Node::Null(_) => self.null(),
             Node::Array(arr) => {
                 let mut elements = Vec::new();
                 for element in &arr.elements {
@@ -142,7 +193,7 @@ impl<'l> Executor<'l> {
                 }
             }
         }
-        self.heap.allocate_cell(Object::Null)
+        self.null()
     }
 
     fn visit_for(&mut self, forstmt: &ForStmt) -> Cell<Object> {
@@ -180,20 +231,20 @@ impl<'l> Executor<'l> {
                 break;
             }
         }
-        self.heap.allocate_cell(Object::Null)
+        self.null()
     }
 
     fn visit_declare(&mut self, decl: &Declare) -> Cell<Object> {
         for ident in &decl.idents {
             if let Node::Ident(id) = ident {
-                let cell = self.heap.allocate_cell(Object::Null);
+                let cell = self.null();
                 if let Some(prev) = self.global_env.add(&id.value, cell) {
                     self.heap.remove_root(&prev);
                 }
                 self.heap.add_root(cell);
             }
         }
-        self.heap.allocate_cell(Object::Null)
+        self.null()
     }
 
     fn visit_init(&mut self, init: &Init) -> Cell<Object> {
@@ -216,7 +267,10 @@ impl<'l> Executor<'l> {
         match self.global_env.get(&id.value) {
             Some(cell) => {
                 let obj = cell.as_ref().clone();
-                self.heap.allocate_cell(obj)
+                match self.constant(&obj) {
+                    Some(interned) => interned,
+                    None => self.heap.allocate_cell(obj),
+                }
             }
             None => self.emit_undefined_error(
                 format!("undefined identifier '{}'", id.value),
@@ -251,9 +305,11 @@ impl<'l> Executor<'l> {
             ),
         };
         if name.len() > 0 {
-            if let Some(var) = self.global_env.get(&name) {
-                let var_obj = self.heap.view_mut_cell(var).unwrap();
-                *var_obj = value_cell.as_ref().clone();
+            if self.global_env.get(&name).is_some() {
+                self.heap.add_root(value_cell);
+                if let Some(prev) = self.global_env.assign(&name, value_cell) {
+                    self.heap.remove_root(&prev);
+                }
             } else {
                 return self.emit_undefined_error(
                     format!("undefined identifier '{}'", name),
@@ -264,7 +320,7 @@ impl<'l> Executor<'l> {
                 );
             }
         }
-        self.heap.allocate_cell(Object::Null)
+        self.null()
     }
 
     fn visit_func_expr(&mut self, func: &FunctionExpr) -> Cell<Object> {
@@ -433,7 +489,7 @@ impl<'l> Executor<'l> {
                     }
                 }
                 println!("{}", printed.join(" "));
-                return self.heap.allocate_cell(Object::Null);
+                return self.null();
             }
             _ => panic!("Error: unknown builtin function call {}", id.value),
         }
@@ -470,7 +526,7 @@ impl<'l> Executor<'l> {
                     return self.visit_expr(else_blk);
                 }
 
-                self.heap.allocate_cell(Object::Null)
+                self.null()
             }
             _ => self.emit_type_error(
                 "predicate must be boolean".to_string(),
@@ -501,7 +557,7 @@ impl<'l> Executor<'l> {
                 }
             }
         }
-        self.heap.allocate_cell(Object::Null)
+        self.null()
     }
 
     pub fn visit_lt(&mut self, node: &Node) -> Cell<Object> {
@@ -512,7 +568,7 @@ impl<'l> Executor<'l> {
         let l = self.visit_expr(&op.left);
         let r = self.visit_expr(&op.right);
         match (l.as_ref(), r.as_ref()) {
-            (Object::Number(a), Object::Number(b)) => self.heap.allocate_cell(Object::Bool(a < b)),
+            (Object::Number(a), Object::Number(b)) => self.boolean(a < b),
             _ => self.emit_type_error(
                 "expected numbers for <".to_string(),
                 NodeParseInfo {
@@ -531,7 +587,7 @@ impl<'l> Executor<'l> {
         let l = self.visit_expr(&op.left);
         let r = self.visit_expr(&op.right);
         match (l.as_ref(), r.as_ref()) {
-            (Object::Number(a), Object::Number(b)) => self.heap.allocate_cell(Object::Bool(a <= b)),
+            (Object::Number(a), Object::Number(b)) => self.boolean(a <= b),
             _ => self.emit_type_error(
                 "expected numbers for <=".to_string(),
                 NodeParseInfo {
@@ -550,7 +606,7 @@ impl<'l> Executor<'l> {
         let l = self.visit_expr(&op.left);
         let r = self.visit_expr(&op.right);
         match (l.as_ref(), r.as_ref()) {
-            (Object::Number(a), Object::Number(b)) => self.heap.allocate_cell(Object::Bool(a > b)),
+            (Object::Number(a), Object::Number(b)) => self.boolean(a > b),
             _ => self.emit_type_error(
                 "expected numbers for >".to_string(),
                 NodeParseInfo {
@@ -569,7 +625,7 @@ impl<'l> Executor<'l> {
         let l = self.visit_expr(&op.left);
         let r = self.visit_expr(&op.right);
         match (l.as_ref(), r.as_ref()) {
-            (Object::Number(a), Object::Number(b)) => self.heap.allocate_cell(Object::Bool(a >= b)),
+            (Object::Number(a), Object::Number(b)) => self.boolean(a >= b),
             _ => self.emit_type_error(
                 "expected numbers for >=".to_string(),
                 NodeParseInfo {
@@ -594,7 +650,7 @@ impl<'l> Executor<'l> {
             (Object::Null, Object::Null) => true,
             _ => false,
         };
-        self.heap.allocate_cell(Object::Bool(res))
+        self.boolean(res)
     }
 
     pub fn visit_neq(&mut self, node: &Node) -> Cell<Object> {
@@ -611,7 +667,7 @@ impl<'l> Executor<'l> {
             (Object::Null, Object::Null) => false,
             _ => true,
         };
-        self.heap.allocate_cell(Object::Bool(res))
+        self.boolean(res)
     }
 
     pub fn visit_add(&mut self, node: &Node) -> Cell<Object> {
@@ -627,7 +683,7 @@ impl<'l> Executor<'l> {
         let rval = self.extract_number(&right_node);
 
         match (lval, rval) {
-            (Ok(lval), Ok(rval)) => self.heap.allocate_cell(Object::Number(lval + rval)),
+            (Ok(lval), Ok(rval)) => self.number(lval + rval),
             (_, _) => self.emit_type_error(
                 format!("expected a number type"),
                 NodeParseInfo {
@@ -650,7 +706,7 @@ impl<'l> Executor<'l> {
         let rval = self.extract_number(&right_node);
 
         match (lval, rval) {
-            (Ok(lval), Ok(rval)) => self.heap.allocate_cell(Object::Number(lval - rval)),
+            (Ok(lval), Ok(rval)) => self.number(lval - rval),
             (_, _) => self.emit_type_error(
                 format!("expected a number type"),
                 NodeParseInfo {
@@ -673,7 +729,7 @@ impl<'l> Executor<'l> {
         let rval = self.extract_number(&right_node);
 
         match (lval, rval) {
-            (Ok(lval), Ok(rval)) => self.heap.allocate_cell(Object::Number(lval * rval)),
+            (Ok(lval), Ok(rval)) => self.number(lval * rval),
             (_, _) => self.emit_type_error(
                 format!("expected a number type"),
                 NodeParseInfo {
@@ -704,7 +760,7 @@ impl<'l> Executor<'l> {
                         token: op.token.clone(),
                     });
                 }
-                self.heap.allocate_cell(Object::Number(lval / rval))
+                self.number(lval / rval)
             }
             (_, _) => self.emit_type_error(
                 format!("expected a number type"),

@@ -24,6 +24,18 @@ impl Environment {
         None
     }
 
+    // Rebind an existing name in whichever scope holds it, returning the old cell.
+    // Assignment rebinds rather than mutating the cell in place, so cells can be
+    // shared (interned constants especially) without one binding corrupting another.
+    pub fn assign(&mut self, identifier: &str, value: Cell<Object>) -> Option<Cell<Object>> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(slot) = scope.get_mut(identifier) {
+                return Some(std::mem::replace(slot, value));
+            }
+        }
+        None
+    }
+
     pub fn get(&self, identifier: &str) -> Option<Cell<Object>> {
         for scope in self.scopes.iter().rev() {
             if let Some(val) = scope.get(identifier) {
