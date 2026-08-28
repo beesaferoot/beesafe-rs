@@ -130,18 +130,21 @@ fn test_automatic_gc_trigger() {
 
     let obj1 = heap.allocate_cell(Object::Number(1));
     let obj2 = heap.allocate_cell(Object::Number(2));
+    let _obj3 = heap.allocate_cell(Object::Number(3));
 
-    assert_eq!(heap.get_allocation_count(), 2);
-    assert_eq!(heap.get_cells_count(), 2);
+    assert_eq!(heap.get_allocation_count(), 3);
+    assert_eq!(heap.get_cells_count(), 3);
 
     heap.add_root(obj1);
 
-    let obj3 = heap.allocate_cell(Object::Number(3));
-    assert_eq!(heap.get_allocation_count(), 0);
-    assert_eq!(heap.get_cells_count(), 1);
+    // Crossing the threshold collects *before* allocating, so the unrooted cells
+    // go and the cell handed back is live rather than already swept.
+    let obj4 = heap.allocate_cell(Object::Number(4));
+    assert_eq!(heap.get_allocation_count(), 1);
+    assert_eq!(heap.get_cells_count(), 2);
     assert!(heap.is_marked(&obj1));
     assert!(!heap.is_marked(&obj2));
-    assert!(!heap.is_marked(&obj3));
+    assert!(heap.view_cell(obj4).is_some());
 }
 
 #[test]

@@ -2,7 +2,7 @@
     allocator.rs contains the Heap allocation logic for the GC
 */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 /// Trait for objects that can be marked during garbage collection
@@ -13,6 +13,10 @@ pub trait Markable<T> {
 pub trait Allocator<T> {
     fn new() -> Self;
     fn allocate_cell(&mut self, valute: T) -> Cell<T>;
+    fn intern(&mut self, value: T) -> Cell<T>;
+    fn temp_mark(&self) -> usize;
+    fn temp_push(&mut self, cell: Cell<T>);
+    fn temp_release(&mut self, mark: usize);
     fn free_cell(&mut self, cell: Cell<T>);
     fn collect_garbage(&mut self);
     fn mark_live_cells(&mut self);
@@ -38,7 +42,11 @@ pub struct Cell<T> {
 
 pub struct Heap<T> {
     cells: HashSet<Cell<T>>,
-    roots: HashSet<Cell<T>>,       // GC roots - references from environment
+    // Refcounted: one cell can be rooted by several owners (a binding and a
+    // statement result, say), so a single remove_root must not unroot it.
+    roots: HashMap<*mut T, usize>,
+    permanent: Vec<Cell<T>>,       // interned constants: always live, never swept
+    temps: Vec<Cell<T>>,           // shadow stack of in-flight temporaries
     marked_cells: HashSet<*mut T>, // Track marked cells by pointer
     allocation_count: usize,       // Track allocations since last GC
     gc_threshold: usize,           // Trigger GC after this many allocations
@@ -48,7 +56,9 @@ impl<T: Markable<T>> Allocator<T> for Heap<T> {
     fn new() -> Self {
         Self {
             cells: HashSet::default(),
-            roots: HashSet::default(),
+            roots: HashMap::default(),
+            permanent: Vec::new(),
+            temps: Vec::new(),
             marked_cells: HashSet::default(),
             allocation_count: 0,
             gc_threshold: 100,
@@ -56,18 +66,41 @@ impl<T: Markable<T>> Allocator<T> for Heap<T> {
     }
 
     fn allocate_cell(&mut self, value: T) -> Cell<T> {
-        let ptr = Box::into_raw(Box::new(value));
-        let cell = Cell { ptr, marked: false };
-
-        self.cells.insert(cell);
-        self.allocation_count += 1;
-
         if self.allocation_count >= self.gc_threshold {
             self.collect_garbage();
             self.allocation_count = 0;
         }
 
+        let ptr = Box::into_raw(Box::new(value));
+        let cell = Cell { ptr, marked: false };
+        self.cells.insert(cell);
+        self.allocation_count += 1;
         cell
+    }
+
+    // An interned constant. Permanently live, so it is safe to share and it never
+    // needs rooting by whoever holds it.
+    fn intern(&mut self, value: T) -> Cell<T> {
+        let ptr = Box::into_raw(Box::new(value));
+        let cell = Cell { ptr, marked: false };
+        self.cells.insert(cell);
+        self.permanent.push(cell);
+        cell
+    }
+
+    // Shadow stack. Temporaries held in Rust locals are invisible to the collector,
+    // so a visitor pushes them here for the duration and truncates back on the way
+    // out. Truncate-to-mark means nested calls compose without counting.
+    fn temp_mark(&self) -> usize {
+        self.temps.len()
+    }
+
+    fn temp_push(&mut self, cell: Cell<T>) {
+        self.temps.push(cell);
+    }
+
+    fn temp_release(&mut self, mark: usize) {
+        self.temps.truncate(mark);
     }
 
     fn free_cell(&mut self, cell: Cell<T>) {
@@ -120,44 +153,41 @@ impl<T: Markable<T>> Allocator<T> for Heap<T> {
 
     fn mark_live_cells(&mut self) {
         self.marked_cells.clear();
-        let root_ptrs: Vec<*mut T> = self.roots.iter().map(|root| root.ptr).collect();
-        for ptr in root_ptrs {
+        let mut start: Vec<*mut T> = self.roots.keys().copied().collect();
+        start.extend(self.permanent.iter().map(|c| c.ptr));
+        start.extend(self.temps.iter().map(|c| c.ptr));
+        for ptr in start {
             self.mark_recursive(ptr);
         }
     }
 
+    // Explicit worklist rather than native recursion, so a deep object graph
+    // cannot overflow the stack. Cell hashes by pointer, so `contains` is O(1).
     fn mark_recursive(&mut self, ptr: *mut T) {
-        if self.marked_cells.contains(&ptr) {
-            return;
-        }
-
-        let cell_exists = self.cells.iter().any(|cell| cell.ptr == ptr);
-        if !cell_exists {
-            return;
-        }
-
-        // Mark this cell
-        self.marked_cells.insert(ptr);
-
-        // Also set the debug `marked` flag on the stored Cell for visibility
-        if let Some(mut cell) = self.cells.take(&Cell { ptr, marked: false }) {
-            cell.marked = true;
-            self.cells.insert(cell);
-        }
-
-        if let Some(obj) = self.view_cell(Cell { ptr, marked: false }) {
-            for reference in obj.get_references() {
-                self.mark_recursive(reference.ptr);
+        let mut work = vec![ptr];
+        while let Some(ptr) = work.pop() {
+            let cell = Cell { ptr, marked: false };
+            if self.marked_cells.contains(&ptr) || !self.cells.contains(&cell) {
+                continue;
+            }
+            self.marked_cells.insert(ptr);
+            if let Some(obj) = self.view_cell(cell) {
+                work.extend(obj.get_references().iter().map(|r| r.ptr));
             }
         }
     }
 
     fn add_root(&mut self, cell: Cell<T>) {
-        self.roots.insert(cell);
+        *self.roots.entry(cell.ptr).or_insert(0) += 1;
     }
 
     fn remove_root(&mut self, cell: &Cell<T>) {
-        self.roots.remove(cell);
+        if let Some(count) = self.roots.get_mut(&cell.ptr) {
+            *count -= 1;
+            if *count == 0 {
+                self.roots.remove(&cell.ptr);
+            }
+        }
     }
 
     fn is_marked(&self, cell: &Cell<T>) -> bool {

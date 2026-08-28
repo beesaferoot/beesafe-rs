@@ -216,10 +216,21 @@ impl IteratorObj {
 }
 
 impl Markable<Object> for Object {
+    // No wildcard arm: adding a variant that holds a Cell must not silently
+    // default to "has no references", which would sweep it while live.
     fn get_references(&self) -> Vec<Cell<Object>> {
         match self {
             Object::Array(elements) => elements.clone(),
-            _ => Vec::new(),
+            Object::Return(cell) => vec![*cell],
+            Object::Iterator(it) => it.items.iter().flat_map(|o| o.get_references()).collect(),
+            Object::Null
+            | Object::Bool(_)
+            | Object::Error(_)
+            | Object::Number(_)
+            | Object::String(_)
+            | Object::Float(_)
+            | Object::Range(_)
+            | Object::Function(_) => Vec::new(),
         }
     }
 }
