@@ -1,0 +1,14 @@
+for x in 1+1..4 {
+    print(x)
+}
+init lo = 2
+for y in lo..lo+1 {
+    print(y)
+}
+
+// ---
+// 2
+// 3
+// 4
+// 2
+// 3

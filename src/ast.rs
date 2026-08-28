@@ -75,32 +75,6 @@ pub enum NodeType {
     Err,
 }
 
-#[derive(PartialEq, PartialOrd)]
-pub enum Precendence {
-    Base(i8),
-    Lt(i8),
-    Gt(i8),
-    LtEq(i8),
-    GtEq(i8),
-    Eq(i8),
-    NotEq(i8),
-    Add(i8),
-    Sub(i8),
-    Div(i8),
-    Mul(i8),
-    USub(i8),
-    Not(i8),
-    Call(i8),
-    Assign(i8),
-    Minus(i8),
-    Range(i8),
-}
-
-enum Association {
-    Left = 0,
-    Right = 1,
-}
-
 #[derive(Debug, Clone)]
 pub struct Block {
     pub lineno: i32,

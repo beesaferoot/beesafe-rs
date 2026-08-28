@@ -1,0 +1,23 @@
+init x = 0
+x = 1 + 2
+print(x)
+
+declare a, b
+a = 1
+b = a + x
+print(b)
+
+init i = 0
+while (i < 3) {
+    print(i)
+    i = i + 1
+}
+print(i)
+
+// ---
+// 3
+// 4
+// 0
+// 1
+// 2
+// 3

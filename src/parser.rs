@@ -14,8 +14,6 @@ pub struct Parser<'a> {
     lexer: &'a mut Lexer,
     current_token: Option<Token>,
     peek_token: Option<Token>,
-    operator_stack: Vec<Token>,
-    operand_stack: Vec<Node>,
     errors: Vec<Error>,
 }
 
@@ -37,8 +35,6 @@ impl<'a> Parser<'a> {
             lexer,
             current_token: None,
             peek_token: None,
-            operator_stack: vec![],
-            operand_stack: vec![],
             errors: vec![],
         }
     }
@@ -73,32 +69,156 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // parse expression using the shunting yard technique (https://en.wikipedia.org/wiki/Shunting_yard_algorithm)
+    // Pratt parser. On entry current_token is the expression's first token;
+    // on exit it is the last, which is the convention the statement parsers expect.
     fn parse_expression(&mut self) -> Node {
-        /*
+        self.parse_expr_bp(0)
+    }
 
-        (expr) -> (produce)
-        (produce) -> num|id|define|string_literal|(expr)|null
-        num: <-> 1|2|..|intergers
-        id: <-> identifiers
-        string_literal <-> "string literal" | ''
-        null <-> null keyword
+    // Left binding power, right binding power. Higher binds tighter.
+    // Left-associative operators use (n, n + 1), right-associative (n + 1, n).
+    fn infix_bp(op_type: TType) -> Option<(u8, u8)> {
+        Some(match op_type {
+            TType::Assign => (2, 1),
+            TType::Range => (3, 4),
+            TType::Eq | TType::NotEq => (5, 6),
+            TType::Lt | TType::LtEq | TType::Gt | TType::GtEq => (7, 8),
+            TType::Plus | TType::Minus => (9, 10),
+            TType::Asterisk | TType::Div => (11, 12),
+            _ => return None,
+        })
+    }
 
-        */
-        self.expression();
-        let node = self.operand_stack.pop().unwrap_or(Node::Error(Error {
-            src: self.source(),
-            span: (
-                self.current_token.as_ref().unwrap().offset as usize,
-                self.current_token.as_ref().unwrap().lexeme.len(),
-            )
-                .into(),
-            error_type: ParseError::InvalidSyntax(format!(
-                "Invalid expression: {}",
-                self.current_token.as_ref().unwrap().lexeme
-            )),
-        }));
-        node
+    const PREFIX_BP: u8 = 13;
+
+    fn parse_expr_bp(&mut self, min_bp: u8) -> Node {
+        let mut left = self.parse_prefix();
+        // An expression built over a bad operand is itself bad, so errors bubble up
+        // rather than being wrapped in a node the executor would later trip over.
+        if matches!(left, Node::Error(_)) {
+            return left;
+        }
+
+        while let Some(op) = self.peek_token.clone() {
+            let (left_bp, right_bp) = match Self::infix_bp(op.ttype) {
+                Some(bp) => bp,
+                None => break,
+            };
+            if left_bp < min_bp {
+                break;
+            }
+            self.consume_next_token(); // current: the operator
+            self.consume_next_token(); // current: first token of the right operand
+            let right = self.parse_expr_bp(right_bp);
+            if matches!(right, Node::Error(_)) {
+                return right;
+            }
+            left = self.make_infix(op, left, right);
+        }
+        left
+    }
+
+    fn make_infix(&mut self, op: Token, left: Node, right: Node) -> Node {
+        if op.ttype == TType::Range {
+            return Node::Range(Range {
+                lineno: self.lexer.lineno(),
+                start: Box::new(left),
+                end: Box::new(right),
+            });
+        }
+        self.parse_binary_op(op, left, right)
+    }
+
+    fn parse_prefix(&mut self) -> Node {
+        let token = self.current_token.clone().unwrap();
+        let ttype = token.ttype;
+        match ttype {
+            TType::Minus | TType::Bang => {
+                self.consume_next_token();
+                let operand = self.parse_expr_bp(Self::PREFIX_BP);
+                if matches!(operand, Node::Error(_)) {
+                    return operand;
+                }
+                self.parse_uniary_op(token, Box::new(operand))
+            }
+            TType::Num | TType::Null | TType::Literal => self.create_node(&ttype),
+            TType::True | TType::False => self.parse_bool(),
+            TType::Id => match self.peek_token.as_ref().unwrap().ttype {
+                TType::Lparen => self.parse_call_expr(),
+                TType::Lbracket => self.parse_index_expr(),
+                _ => self.create_node(&ttype),
+            },
+            TType::Lbracket => self.parse_array_literal(),
+            TType::Define => self.parse_func_expr(token),
+            TType::Lparen => {
+                self.consume_next_token();
+                let inner = self.parse_expr_bp(0);
+                if self.peek_token.as_ref().unwrap().ttype != TType::Rparen {
+                    let curr = self.current_token.as_ref().unwrap();
+                    let span = (curr.offset as usize, curr.lexeme.len()).into();
+                    self.errors.push(Error::new(
+                        self.source(),
+                        span,
+                        ParseError::InvalidSyntax(format!(
+                            "Expected ')' after expression, got {}",
+                            curr.lexeme
+                        )),
+                    ));
+                } else {
+                    self.consume_next_token();
+                }
+                inner
+            }
+            _ => {
+                let span = (token.offset as usize, token.lexeme.len()).into();
+                let err = Error::new(
+                    self.source(),
+                    span,
+                    ParseError::InvalidSyntax(format!(
+                        "Unexpected token in expression: {}",
+                        token.lexeme
+                    )),
+                );
+                self.errors.push(err.clone());
+                Node::Error(err)
+            }
+        }
+    }
+
+    // `define(params){ body }`, optionally invoked straight away: `define(){ ... }()`
+    fn parse_func_expr(&mut self, define_token: Token) -> Node {
+        if self.peek_token.as_ref().unwrap().ttype != TType::Lparen {
+            let span = (define_token.offset as usize, define_token.lexeme.len()).into();
+            let err = Error::new(
+                self.source(),
+                span,
+                ParseError::InvalidSyntax(format!(
+                    "Expected '(' after 'define' keyword in a function expression, got {}",
+                    define_token.lexeme
+                )),
+            );
+            self.errors.push(err.clone());
+            return Node::Error(err);
+        }
+
+        self.consume_next_token();
+        let func = self.parse_func_literal();
+
+        if self.peek_token.as_ref().unwrap().ttype != TType::Lparen {
+            return func;
+        }
+
+        self.consume_next_token();
+        let args = match self.parse_call_expr() {
+            Node::Call(call) => call.args,
+            err => return err,
+        };
+        Node::Call(Call {
+            lineno: self.lexer.lineno(),
+            token: self.current_token.clone().unwrap(),
+            func: Some(Box::new(func)),
+            args,
+        })
     }
 
     fn parse_index_expr(&mut self) -> Node {
@@ -148,246 +268,6 @@ impl<'a> Parser<'a> {
             object: Box::new(object),
             index: Box::new(index),
         })
-    }
-
-    // expr -> produce
-    fn expression(&mut self) {
-        let null_token = Token {
-            lexeme: "".to_string(),
-            ttype: TType::Null,
-            offset: -1,
-        };
-        self.operator_stack.push(null_token);
-        self.produce();
-        let mut look_ahead = self.peek_token.as_ref().unwrap();
-        let mut ttype = look_ahead.ttype;
-        while self.resolve_binary_op(ttype) {
-            let op_token = look_ahead.clone();
-            self.push_operator(op_token, true);
-            self.consume_next_token();
-            self.consume_next_token();
-            self.produce();
-            ttype = self.peek_token.as_ref().unwrap().ttype;
-            look_ahead = self.peek_token.as_ref().unwrap();
-        }
-        let default_token = &Token {
-            ttype: TType::Error,
-            lexeme: String::from(""),
-            offset: -1,
-        };
-        let mut op = self.operator_stack.last().unwrap_or(default_token);
-        while op.ttype != TType::Error && op.ttype != TType::Null {
-            let is_binary = self.resolve_binary_op(op.ttype);
-            self.pop_operator(is_binary);
-            if self.operator_stack.last().is_some() {
-                op = self.operator_stack.last().unwrap();
-            } else {
-                break;
-            }
-        }
-        self.operator_stack.pop();
-    }
-
-    // (produce) -> ...
-    fn produce(&mut self) {
-        let curr_token = self.current_token.as_ref().unwrap();
-        let ttype = curr_token.ttype;
-        match ttype {
-            TType::Num => {
-                let node = self.create_node(&ttype);
-                if self.peek_token.as_ref().unwrap().ttype == TType::Range {
-                    let range_node = self.parse_num_range().unwrap();
-                    self.operand_stack.pop();
-                    self.operand_stack.push(range_node);
-                } else {
-                    self.operand_stack.push(node);
-                }
-            }
-            TType::Null => {
-                let node = self.create_node(&ttype);
-                self.operand_stack.push(node);
-            }
-            TType::Id => {
-                // Check if this is a function call
-                if self.peek_token.as_ref().unwrap().ttype == TType::Lparen {
-                    let call_node = self.parse_call_expr();
-                    // self.operand_stack.pop();
-                    self.operand_stack.push(call_node);
-                } else if self.peek_token.as_ref().unwrap().ttype == TType::Lbracket {
-                    let index_node = self.parse_index_expr();
-                    self.operand_stack.push(index_node);
-                } else {
-                    let node = self.create_node(&ttype);
-                    self.operand_stack.push(node);
-                }
-            }
-            TType::Define => {
-                if self.peek_token.as_ref().unwrap().ttype != TType::Lparen {
-                    let span = (curr_token.offset as usize, curr_token.lexeme.len()).into();
-                    let err = Error::new(
-                        self.source(),
-                        span,
-                        ParseError::InvalidSyntax(format!(
-                            "Expected '(' after 'define' keyword in a function expression, got {}",
-                            curr_token.lexeme
-                        )),
-                    );
-                    self.errors.push(err);
-                    return;
-                }
-
-                self.consume_next_token();
-                let node = self.parse_func_literal();
-                self.operand_stack.push(node);
-                if self.peek_token.as_ref().unwrap().ttype == TType::Lparen {
-                    self.consume_next_token();
-                    let call_node = self.parse_call_expr();
-                    self.operand_stack.push(call_node);
-                    self.operator_stack.push(Token {
-                        lexeme: "()".to_string(),
-                        ttype: TType::Call,
-                        offset: -1,
-                    });
-                }
-            }
-            TType::Literal => {
-                let node = self.create_node(&ttype);
-                self.operand_stack.push(node);
-            }
-            TType::False => {
-                let node = self.parse_bool();
-                self.operand_stack.push(node);
-            }
-            TType::True => {
-                let node = self.parse_bool();
-                self.operand_stack.push(node);
-            }
-            TType::Lbracket => {
-                let array_node = self.parse_array_literal();
-                self.operand_stack.push(array_node);
-            }
-            TType::Lparen => {
-                self.consume_next_token();
-                self.expression();
-
-                if self.peek_token.as_ref().unwrap().ttype != TType::Rparen {
-                    let curr_token = self.current_token.as_ref().unwrap();
-                    let span = (curr_token.offset as usize, curr_token.lexeme.len()).into();
-                    let err = Error::new(
-                        self.source(),
-                        span,
-                        ParseError::InvalidSyntax(format!(
-                            "Expected ')' after expression, got {}",
-                            curr_token.lexeme
-                        )),
-                    );
-                    self.errors.push(err);
-                } else {
-                    self.consume_next_token();
-                }
-            }
-            _ => {
-                if self.resolve_uniary_op(ttype) {
-                    let token = curr_token.clone();
-                    self.push_operator(token, false);
-                    self.consume_next_token();
-                    self.produce();
-                    self.pop_operator(false);
-                } else {
-                    let span = (curr_token.offset as usize, curr_token.lexeme.len()).into();
-                    let err = Error::new(
-                        self.source(),
-                        span,
-                        ParseError::InvalidSyntax(format!(
-                            "Unexpected token in expression: {}",
-                            curr_token.lexeme
-                        )),
-                    );
-                    self.errors.push(err);
-                }
-            }
-        }
-    }
-
-    fn resolve_uniary_op(&self, op_type: TType) -> bool {
-        match op_type {
-            TType::Bang => true,
-            TType::Minus => true,
-            _ => false,
-        }
-    }
-
-    fn resolve_binary_op(&self, op_type: TType) -> bool {
-        match op_type {
-            TType::Plus => true,
-            TType::Minus => true,
-            TType::Asterisk => true,
-            TType::Div => true,
-            TType::Lt => true,
-            TType::LtEq => true,
-            TType::Gt => true,
-            TType::GtEq => true,
-            TType::NotEq => true,
-            TType::Eq => true,
-            TType::Assign => true,
-            TType::Call => true,
-            TType::Range => true,
-            _ => false,
-        }
-    }
-
-    fn resolve_precedence(&self, op_type: &TType) -> Precendence {
-        match op_type {
-            TType::Plus => Precendence::Add(2),
-            TType::Minus => Precendence::Minus(2),
-            TType::Asterisk => Precendence::Mul(3),
-            TType::Div => Precendence::Div(3),
-            TType::Lt => Precendence::Lt(1),
-            TType::LtEq => Precendence::LtEq(1),
-            TType::Gt => Precendence::Gt(1),
-            TType::GtEq => Precendence::GtEq(1),
-            TType::NotEq => Precendence::NotEq(1),
-            TType::Eq => Precendence::Eq(1),
-            TType::Assign => Precendence::Assign(1),
-            TType::Call => Precendence::Call(5),
-            TType::Range => Precendence::Range(0),
-            _ => Precendence::Base(0),
-        }
-    }
-
-    fn push_operator(&mut self, op: Token, is_binary: bool) {
-        let precedence = self.resolve_precedence(&op.ttype);
-
-        if self.operator_stack.last().is_none() {
-            self.operator_stack.push(op);
-            return;
-        }
-
-        while let Some(last_op) = self.operator_stack.last() {
-            if self.resolve_precedence(&last_op.ttype) >= precedence {
-                self.pop_operator(is_binary);
-            } else {
-                break;
-            }
-        }
-        self.operator_stack.push(op);
-    }
-
-    fn pop_operator(&mut self, is_binary: bool) {
-        if self.operand_stack.len() >= 2 && is_binary {
-            let right = self.operand_stack.pop().unwrap();
-            let left = self.operand_stack.pop().unwrap();
-            let op = self.operator_stack.pop().unwrap();
-            let node = self.parse_binary_op(op.clone(), left, right);
-            self.operand_stack.push(node);
-        } else if self.operand_stack.len() > 0 {
-            let operand_node = self.operand_stack.pop().unwrap();
-            let op = self.operator_stack.pop().unwrap();
-            let node = self.parse_uniary_op(op.clone(), Box::new(operand_node));
-            self.operand_stack.push(node);
-        } else {
-            self.operator_stack.pop();
-        }
     }
 
     fn create_node(&mut self, op_type: &TType) -> Node {
@@ -1130,41 +1010,6 @@ impl<'a> Parser<'a> {
             iter: Box::new(f_iter.ok().unwrap()),
             block: Box::new(f_block.ok().unwrap()),
         })
-    }
-
-    fn parse_num_range(&mut self) -> Result<Node, Error> {
-        let lineno = self.lexer.lineno();
-        let cur_token = self.current_token.as_ref().unwrap();
-        let ttype = cur_token.ttype;
-        let start = self.create_node(&ttype);
-        self.consume_next_token();
-        let cur_token = self.current_token.as_ref().unwrap();
-
-        if cur_token.ttype != TType::Range {
-            return Err(Error::new(
-                self.source(),
-                (cur_token.offset as usize, cur_token.lexeme.len()).into(),
-                ParseError::InvalidSyntax("".to_string()),
-            ));
-        }
-
-        self.consume_next_token();
-        let cur_token = self.current_token.as_ref().unwrap();
-        let ttype = cur_token.ttype;
-
-        if cur_token.ttype != TType::Num {
-            return Err(Error::new(
-                self.source(),
-                (cur_token.offset as usize, cur_token.lexeme.len()).into(),
-                ParseError::InvalidSyntax("".to_string()),
-            ));
-        }
-        let end = self.create_node(&ttype);
-        Ok(Node::Range(Range {
-            lineno,
-            start: Box::new(start),
-            end: Box::new(end),
-        }))
     }
 
     pub fn parse_stmt(&mut self, ttype: &TType) -> Node {
