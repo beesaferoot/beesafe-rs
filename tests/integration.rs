@@ -34,9 +34,16 @@ fn integration() {
 }
 
 fn run(case: &Path) -> String {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_beesafe"))
-        .arg(case)
-        .env("NO_COLOR", "1")
+    run_with_threshold(case, None)
+}
+
+fn run_with_threshold(case: &Path, threshold: Option<&str>) -> String {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_beesafe"));
+    cmd.arg(case).env("NO_COLOR", "1");
+    if let Some(t) = threshold {
+        cmd.env("BEESAFE_GC_THRESHOLD", t);
+    }
+    let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -81,4 +88,33 @@ fn expected(src: &str) -> String {
 
 fn indent(s: &str) -> String {
     s.lines().map(|l| format!("    {l}\n")).collect()
+}
+
+// Collecting on every allocation must not change what a program prints. This is
+// what catches a temporary held in a Rust local that nothing rooted.
+#[test]
+fn gc_stress() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cases");
+    let mut cases: Vec<PathBuf> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().map_or(false, |e| e == "bs"))
+        .collect();
+    cases.sort();
+
+    let mut failed = Vec::new();
+    for case in &cases {
+        let want = expected(&fs::read_to_string(case).unwrap());
+        let got = run_with_threshold(case, Some("1"));
+        if got != want {
+            let name = case.file_name().unwrap().to_string_lossy();
+            failed.push(format!("{name}\n  want:\n{}  got:\n{}", indent(&want), indent(&got)));
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "\n{} case(s) differ under gc_threshold=1:\n\n{}",
+        failed.len(),
+        failed.join("\n")
+    );
 }

@@ -1,0 +1,22 @@
+define mk() { return [7, 8] }
+init made = mk()
+for w in made { print("w =", w) }
+
+define outer() { define inner() { return [1, 2] } return inner() }
+for q in outer() { print("q =", q) }
+
+define add2(a, b) { return a + b }
+print("add2 =", add2(5000, 5000))
+
+init s = "abc"
+for c in s { print("c =", c) }
+
+// ---
+// w = 7
+// w = 8
+// q = 1
+// q = 2
+// add2 = 10000
+// c = a
+// c = b
+// c = c

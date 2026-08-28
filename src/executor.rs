@@ -23,7 +23,13 @@ pub struct Executor<'l> {
 impl<'l> Executor<'l> {
     pub fn new(env: &'l mut Environment, parser: &'l Parser<'l>) -> Self {
         let mut heap = Heap::new();
-        heap.set_gc_threshold(1000);
+        // Overridable so tests can collect on every allocation. Correct code
+        // produces identical output at any threshold.
+        let threshold = std::env::var("BEESAFE_GC_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000);
+        heap.set_gc_threshold(threshold);
         let null = heap.intern(Object::Null);
         let booleans = [
             heap.intern(Object::Bool(false)),
@@ -40,6 +46,17 @@ impl<'l> Executor<'l> {
             booleans,
             small_ints,
         }
+    }
+
+    // Evaluate both operands of a binary node, keeping the left rooted while the
+    // right is evaluated. Returns the shadow-stack mark for the caller to release.
+    fn eval_operands(&mut self, op: &BinaryOp) -> (usize, Cell<Object>, Cell<Object>) {
+        let mark = self.heap.temp_mark();
+        let left = self.visit_expr(&op.left);
+        self.heap.temp_push(left);
+        let right = self.visit_expr(&op.right);
+        self.heap.temp_push(right);
+        (mark, left, right)  
     }
 
     fn null(&self) -> Cell<Object> {
@@ -77,9 +94,13 @@ impl<'l> Executor<'l> {
     pub fn visit_program(&mut self, program: &Program) -> Vec<Cell<Object>> {
         let mut result = Vec::new();
         for stmt in &program.statements {
+            let mark = self.heap.temp_mark();
             let cell = self.visit_expr(stmt);
             self.heap.add_root(cell);
             result.push(cell);
+            // Safety net: a visitor that returns early without releasing only
+            // over-roots, and this bounds that to a single statement.
+            self.heap.temp_release(mark);
         }
         self.heap.force_gc();
         result
@@ -111,12 +132,16 @@ impl<'l> Executor<'l> {
             Node::Boolean(v) => self.boolean(v.value),
             Node::Null(_) => self.null(),
             Node::Array(arr) => {
+                let mark = self.heap.temp_mark();
                 let mut elements = Vec::new();
                 for element in &arr.elements {
                     let obj = self.visit_expr(element);
+                    self.heap.temp_push(obj);
                     elements.push(obj);
                 }
-                self.heap.allocate_cell(Object::Array(elements))
+                let array = self.heap.allocate_cell(Object::Array(elements));
+                self.heap.temp_release(mark);
+                array
             }
             Node::Range(range) => {
                 let start = match self.visit_expr(&range.start).as_ref() {
@@ -180,8 +205,12 @@ impl<'l> Executor<'l> {
         for stmt in &block.statements {
             match stmt.as_ref() {
                 Node::Return(ret) => {
+                    let mark = self.heap.temp_mark();
                     let val = self.visit_expr(&ret.value);
-                    return self.heap.allocate_cell(Object::Return(val));
+                    self.heap.temp_push(val);
+                    let wrapped = self.heap.allocate_cell(Object::Return(val));
+                    self.heap.temp_release(mark);
+                    return wrapped;
                 }
                 _ => {
                     let r = self.visit_expr(stmt);
@@ -197,7 +226,9 @@ impl<'l> Executor<'l> {
     }
 
     fn visit_for(&mut self, forstmt: &ForStmt) -> Cell<Object> {
+        let mark = self.heap.temp_mark();
         let iter_cell = self.visit_expr(&forstmt.iter);
+        self.heap.temp_push(iter_cell);
         let iter_obj = iter_cell.as_ref();
         let mut iterator = match iter_obj.get_iterator() {
             Some(it) => it,
@@ -231,6 +262,7 @@ impl<'l> Executor<'l> {
                 break;
             }
         }
+        self.heap.temp_release(mark);
         self.null()
     }
 
@@ -365,7 +397,9 @@ impl<'l> Executor<'l> {
             }
         }
 
+        let mark = self.heap.temp_mark();
         let callee_cell = self.visit_expr(callee_node);
+        self.heap.temp_push(callee_cell);
 
         match callee_cell.as_ref() {
             Object::Function(_) => (),
@@ -385,7 +419,9 @@ impl<'l> Executor<'l> {
 
         let mut arg_cells: Vec<Cell<Object>> = Vec::with_capacity(func_call.args.len());
         for arg in &func_call.args {
-            arg_cells.push(self.visit_expr(arg));
+            let cell = self.visit_expr(arg);
+            self.heap.temp_push(cell);
+            arg_cells.push(cell);
         }
 
         // Push scope AFTER evaluating arguments (arguments are evaluated in caller's scope)
@@ -444,15 +480,18 @@ impl<'l> Executor<'l> {
                 }
 
                 let result = self.visit_expr(&body_owned);
-                self.heap.add_root(result.clone());
+                self.heap.temp_push(result);
                 let removed = self.global_env.pop_scope();
                 for cell in removed {
                     self.heap.remove_root(&cell);
                 }
-                match result.as_ref() {
+                let value = match result.as_ref() {
                     Object::Return(ret) => *ret,
                     _ => result,
-                }
+                };
+                self.heap.temp_push(value);
+                self.heap.temp_release(mark);
+                value
             }
             _ => {
                 let removed = self.global_env.pop_scope();
@@ -565,9 +604,8 @@ impl<'l> Executor<'l> {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left);
-        let r = self.visit_expr(&op.right);
-        match (l.as_ref(), r.as_ref()) {
+        let (mark, l, r) = self.eval_operands(op);
+        let out = match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => self.boolean(a < b),
             _ => self.emit_type_error(
                 "expected numbers for <".to_string(),
@@ -576,7 +614,9 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
-        }
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     pub fn visit_lte(&mut self, node: &Node) -> Cell<Object> {
@@ -584,9 +624,8 @@ impl<'l> Executor<'l> {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left);
-        let r = self.visit_expr(&op.right);
-        match (l.as_ref(), r.as_ref()) {
+        let (mark, l, r) = self.eval_operands(op);
+        let out = match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => self.boolean(a <= b),
             _ => self.emit_type_error(
                 "expected numbers for <=".to_string(),
@@ -595,7 +634,9 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
-        }
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     pub fn visit_gt(&mut self, node: &Node) -> Cell<Object> {
@@ -603,9 +644,8 @@ impl<'l> Executor<'l> {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left);
-        let r = self.visit_expr(&op.right);
-        match (l.as_ref(), r.as_ref()) {
+        let (mark, l, r) = self.eval_operands(op);
+        let out = match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => self.boolean(a > b),
             _ => self.emit_type_error(
                 "expected numbers for >".to_string(),
@@ -614,7 +654,9 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
-        }
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     pub fn visit_gte(&mut self, node: &Node) -> Cell<Object> {
@@ -622,9 +664,8 @@ impl<'l> Executor<'l> {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left);
-        let r = self.visit_expr(&op.right);
-        match (l.as_ref(), r.as_ref()) {
+        let (mark, l, r) = self.eval_operands(op);
+        let out = match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => self.boolean(a >= b),
             _ => self.emit_type_error(
                 "expected numbers for >=".to_string(),
@@ -633,7 +674,9 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
-        }
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     pub fn visit_eq(&mut self, node: &Node) -> Cell<Object> {
@@ -641,8 +684,7 @@ impl<'l> Executor<'l> {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left);
-        let r = self.visit_expr(&op.right);
+        let (mark, l, r) = self.eval_operands(op);
         let res = match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => a == b,
             (Object::Bool(a), Object::Bool(b)) => a == b,
@@ -650,6 +692,7 @@ impl<'l> Executor<'l> {
             (Object::Null, Object::Null) => true,
             _ => false,
         };
+        self.heap.temp_release(mark);
         self.boolean(res)
     }
 
@@ -658,8 +701,7 @@ impl<'l> Executor<'l> {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
-        let l = self.visit_expr(&op.left);
-        let r = self.visit_expr(&op.right);
+        let (mark, l, r) = self.eval_operands(op);
         let res = match (l.as_ref(), r.as_ref()) {
             (Object::Number(a), Object::Number(b)) => a != b,
             (Object::Bool(a), Object::Bool(b)) => a != b,
@@ -667,6 +709,7 @@ impl<'l> Executor<'l> {
             (Object::Null, Object::Null) => false,
             _ => true,
         };
+        self.heap.temp_release(mark);
         self.boolean(res)
     }
 
@@ -676,13 +719,12 @@ impl<'l> Executor<'l> {
             _ => unreachable!("visit_mul should only be called with Node::BinaryOp"),
         };
 
-        let left_node = self.visit_expr(&op.left);
-        let right_node = self.visit_expr(&op.right);
+        let (mark, left_node, right_node) = self.eval_operands(op);
 
         let lval = self.extract_number(&left_node);
         let rval = self.extract_number(&right_node);
 
-        match (lval, rval) {
+        let out = match (lval, rval) {
             (Ok(lval), Ok(rval)) => self.number(lval + rval),
             (_, _) => self.emit_type_error(
                 format!("expected a number type"),
@@ -691,7 +733,9 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
-        }
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     pub fn visit_sub(&mut self, node: &Node) -> Cell<Object> {
@@ -699,13 +743,12 @@ impl<'l> Executor<'l> {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_sub should only be called with Node::BinaryOp"),
         };
-        let left_node = self.visit_expr(&op.left);
-        let right_node = self.visit_expr(&op.right);
+        let (mark, left_node, right_node) = self.eval_operands(op);
 
         let lval = self.extract_number(&left_node);
         let rval = self.extract_number(&right_node);
 
-        match (lval, rval) {
+        let out = match (lval, rval) {
             (Ok(lval), Ok(rval)) => self.number(lval - rval),
             (_, _) => self.emit_type_error(
                 format!("expected a number type"),
@@ -714,7 +757,9 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
-        }
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     pub fn visit_mul(&mut self, node: &Node) -> Cell<Object> {
@@ -722,13 +767,12 @@ impl<'l> Executor<'l> {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_mul should only be called with Node::BinaryOp"),
         };
-        let left_node = self.visit_expr(&op.left);
-        let right_node = self.visit_expr(&op.right);
+        let (mark, left_node, right_node) = self.eval_operands(op);
 
         let lval = self.extract_number(&left_node);
         let rval = self.extract_number(&right_node);
 
-        match (lval, rval) {
+        let out = match (lval, rval) {
             (Ok(lval), Ok(rval)) => self.number(lval * rval),
             (_, _) => self.emit_type_error(
                 format!("expected a number type"),
@@ -737,7 +781,9 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
-        }
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     pub fn visit_div(&mut self, node: &Node) -> Cell<Object> {
@@ -746,13 +792,12 @@ impl<'l> Executor<'l> {
             _ => unreachable!("visit_div should only be called with Node::BinaryOp"),
         };
 
-        let left_node = self.visit_expr(&op.left);
-        let right_node = self.visit_expr(&op.right);
+        let (mark, left_node, right_node) = self.eval_operands(op);
 
         let lval = self.extract_number(&left_node);
         let rval = self.extract_number(&right_node);
 
-        match (lval, rval) {
+        let out = match (lval, rval) {
             (Ok(lval), Ok(rval)) => {
                 if rval == 0 {
                     return self.emit_division_by_zero_error(NodeParseInfo {
@@ -769,7 +814,9 @@ impl<'l> Executor<'l> {
                     token: op.token.clone(),
                 },
             ),
-        }
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     fn resolve_func_expr(
