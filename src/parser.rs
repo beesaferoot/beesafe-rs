@@ -844,8 +844,8 @@ impl<'a> Parser<'a> {
             self.consume_next_token();
         }
 
-        self.consume_next_token();
-
+        // Stop on `]`, like parse_call_expr stops on `)`: an expression parser
+        // leaves current_token on its last token, not past it.
         Node::Array(Array { lineno, elements })
     }
 
