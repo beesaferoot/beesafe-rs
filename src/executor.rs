@@ -6,8 +6,7 @@ use crate::lexer::Token;
 use crate::parser::Parser;
 use crate::symbols::*;
 
-// Interned integer range. Loop counters and small literals dominate allocation,
-// so these cover most of it.
+// Integers in this range are interned rather than allocated.
 const SMALL_INT_MIN: i32 = -128;
 const SMALL_INT_MAX: i32 = 1024;
 
@@ -23,8 +22,8 @@ pub struct Executor<'l> {
 impl<'l> Executor<'l> {
     pub fn new(env: &'l mut Environment, parser: &'l Parser<'l>) -> Self {
         let mut heap = Heap::new();
-        // Overridable so tests can collect on every allocation. Correct code
-        // produces identical output at any threshold.
+        // BEESAFE_GC_THRESHOLD overrides the collection threshold. Program output
+        // must not depend on it.
         let threshold = std::env::var("BEESAFE_GC_THRESHOLD")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -48,8 +47,8 @@ impl<'l> Executor<'l> {
         }
     }
 
-    // Evaluate both operands of a binary node, keeping the left rooted while the
-    // right is evaluated. Returns the shadow-stack mark for the caller to release.
+    // Evaluates both operands, keeping the left rooted while the right is
+    // evaluated. Returns the shadow-stack mark for the caller to release.
     fn eval_operands(&mut self, op: &BinaryOp) -> (usize, Cell<Object>, Cell<Object>) {
         let mark = self.heap.temp_mark();
         let left = self.visit_expr(&op.left);
@@ -74,8 +73,8 @@ impl<'l> Executor<'l> {
         self.heap.allocate_cell(Object::Number(value))
     }
 
-    // Constants are shared, so returning the interned cell keeps value semantics
-    // while allocating nothing. Everything else still gets a private copy.
+    // Returns the interned cell for a constant, or None for a value that must be
+    // copied. Sharing is safe because cells are never mutated in place.
     fn constant(&mut self, obj: &Object) -> Option<Cell<Object>> {
         match obj {
             Object::Null => Some(self.null()),
@@ -98,8 +97,7 @@ impl<'l> Executor<'l> {
             let cell = self.visit_expr(stmt);
             self.heap.add_root(cell);
             result.push(cell);
-            // Safety net: a visitor that returns early without releasing only
-            // over-roots, and this bounds that to a single statement.
+            // Bounds any temporary root leaked by an early return to one statement.
             self.heap.temp_release(mark);
         }
         self.heap.force_gc();

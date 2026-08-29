@@ -90,8 +90,8 @@ fn indent(s: &str) -> String {
     s.lines().map(|l| format!("    {l}\n")).collect()
 }
 
-// Collecting on every allocation must not change what a program prints. This is
-// what catches a temporary held in a Rust local that nothing rooted.
+// Collecting on every allocation must not change what a program prints. A
+// difference means something live was not reachable from any root.
 #[test]
 fn gc_stress() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cases");

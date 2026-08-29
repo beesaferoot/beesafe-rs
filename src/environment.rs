@@ -24,9 +24,8 @@ impl Environment {
         None
     }
 
-    // Rebind an existing name in whichever scope holds it, returning the old cell.
-    // Assignment rebinds rather than mutating the cell in place, so cells can be
-    // shared (interned constants especially) without one binding corrupting another.
+    // Rebinds an existing name in whichever scope holds it, returning the old cell.
+    // Rebinding rather than mutating in place keeps shared cells intact.
     pub fn assign(&mut self, identifier: &str, value: Cell<Object>) -> Option<Cell<Object>> {
         for scope in self.scopes.iter_mut().rev() {
             if let Some(slot) = scope.get_mut(identifier) {

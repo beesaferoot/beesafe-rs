@@ -69,8 +69,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Pratt parser. On entry current_token is the expression's first token;
-    // on exit it is the last, which is the convention the statement parsers expect.
+    // Pratt parser. On entry current_token is the expression's first token; on
+    // exit it is the last.
     fn parse_expression(&mut self) -> Node {
         self.parse_expr_bp(0)
     }
@@ -93,8 +93,8 @@ impl<'a> Parser<'a> {
 
     fn parse_expr_bp(&mut self, min_bp: u8) -> Node {
         let mut left = self.parse_prefix();
-        // An expression built over a bad operand is itself bad, so errors bubble up
-        // rather than being wrapped in a node the executor would later trip over.
+        // An expression over a bad operand is itself bad. Propagate the error
+        // instead of wrapping it in a node the executor cannot evaluate.
         if matches!(left, Node::Error(_)) {
             return left;
         }
@@ -844,8 +844,8 @@ impl<'a> Parser<'a> {
             self.consume_next_token();
         }
 
-        // Stop on `]`, like parse_call_expr stops on `)`: an expression parser
-        // leaves current_token on its last token, not past it.
+        // The loop stops on `]`. An expression parser leaves current_token on the
+        // expression's last token, not past it.
         Node::Array(Array { lineno, elements })
     }
 

@@ -341,7 +341,8 @@ impl Lexer {
         loop {
             match self.read_char() {
                 c if c == quote => break,
-                // Unterminated: report the opening quote and what we managed to read.
+                // Unterminated: the token carries the opening quote and the text
+                // read before the input ended.
                 '\0' | '\n' => {
                     let mut lexeme = String::from(quote);
                     lexeme.push_str(&literal);
