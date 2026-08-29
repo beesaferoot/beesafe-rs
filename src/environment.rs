@@ -1,10 +1,10 @@
-use crate::allocator::Cell;
+use crate::allocator::CellView;
 use crate::symbols::Object;
 use std::collections::HashMap;
 
 pub struct Environment {
     depth: i32,
-    scopes: Vec<HashMap<String, Cell<Object>>>,
+    scopes: Vec<HashMap<String, CellView<Object>>>,
     scoping_limit: i32,
 }
 
@@ -17,7 +17,7 @@ impl Environment {
         }
     }
 
-    pub fn add(&mut self, identifier: &str, value: Cell<Object>) -> Option<Cell<Object>> {
+    pub fn add(&mut self, identifier: &str, value: CellView<Object>) -> Option<CellView<Object>> {
         if let Some(scope) = self.scopes.last_mut() {
             return scope.insert(identifier.to_string(), value);
         }
@@ -26,7 +26,7 @@ impl Environment {
 
     // Rebinds an existing name in whichever scope holds it, returning the old cell.
     // Rebinding rather than mutating in place keeps shared cells intact.
-    pub fn assign(&mut self, identifier: &str, value: Cell<Object>) -> Option<Cell<Object>> {
+    pub fn assign(&mut self, identifier: &str, value: CellView<Object>) -> Option<CellView<Object>> {
         for scope in self.scopes.iter_mut().rev() {
             if let Some(slot) = scope.get_mut(identifier) {
                 return Some(std::mem::replace(slot, value));
@@ -35,7 +35,7 @@ impl Environment {
         None
     }
 
-    pub fn get(&self, identifier: &str) -> Option<Cell<Object>> {
+    pub fn get(&self, identifier: &str) -> Option<CellView<Object>> {
         for scope in self.scopes.iter().rev() {
             if let Some(val) = scope.get(identifier) {
                 return Some(val.clone());
@@ -49,7 +49,7 @@ impl Environment {
         self.scopes.push(HashMap::new());
     }
 
-    pub fn pop_scope(&mut self) -> Vec<Cell<Object>> {
+    pub fn pop_scope(&mut self) -> Vec<CellView<Object>> {
         if self.depth > 1 {
             self.depth -= 1;
             if let Some(scope) = self.scopes.pop() {

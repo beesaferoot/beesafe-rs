@@ -1,4 +1,4 @@
-use crate::allocator::{Allocator, Cell, Heap};
+use crate::allocator::{Allocator, CellView, Heap};
 use crate::ast::*;
 use crate::environment::Environment;
 use crate::lexer::TType;
@@ -14,9 +14,9 @@ pub struct Executor<'l> {
     global_env: &'l mut Environment,
     heap: Heap<Object>,
     parser: &'l Parser<'l>,
-    null: Cell<Object>,
-    booleans: [Cell<Object>; 2],
-    small_ints: Vec<Cell<Object>>,
+    null: CellView<Object>,
+    booleans: [CellView<Object>; 2],
+    small_ints: Vec<CellView<Object>>,
 }
 
 impl<'l> Executor<'l> {
@@ -49,7 +49,7 @@ impl<'l> Executor<'l> {
 
     // Evaluates both operands, keeping the left rooted while the right is
     // evaluated. Returns the shadow-stack mark for the caller to release.
-    fn eval_operands(&mut self, op: &BinaryOp) -> (usize, Cell<Object>, Cell<Object>) {
+    fn eval_operands(&mut self, op: &BinaryOp) -> (usize, CellView<Object>, CellView<Object>) {
         let mark = self.heap.temp_mark();
         let left = self.visit_expr(&op.left);
         self.heap.temp_push(left);
@@ -58,15 +58,21 @@ impl<'l> Executor<'l> {
         (mark, left, right)  
     }
 
-    fn null(&self) -> Cell<Object> {
+    fn read(&self, view: CellView<Object>) -> &Object {
+        self.heap
+            .read_cell(view)
+            .expect("read of a cell that has been freed")
+    }
+
+    fn null(&self) -> CellView<Object> {
         self.null
     }
 
-    fn boolean(&self, value: bool) -> Cell<Object> {
+    fn boolean(&self, value: bool) -> CellView<Object> {
         self.booleans[value as usize]
     }
 
-    fn number(&mut self, value: i32) -> Cell<Object> {
+    fn number(&mut self, value: i32) -> CellView<Object> {
         if (SMALL_INT_MIN..=SMALL_INT_MAX).contains(&value) {
             return self.small_ints[(value - SMALL_INT_MIN) as usize];
         }
@@ -75,7 +81,7 @@ impl<'l> Executor<'l> {
 
     // Returns the interned cell for a constant, or None for a value that must be
     // copied. Sharing is safe because cells are never mutated in place.
-    fn constant(&mut self, obj: &Object) -> Option<Cell<Object>> {
+    fn constant(&mut self, obj: &Object) -> Option<CellView<Object>> {
         match obj {
             Object::Null => Some(self.null()),
             Object::Bool(b) => Some(self.boolean(*b)),
@@ -90,7 +96,11 @@ impl<'l> Executor<'l> {
         }
     }
 
-    pub fn visit_program(&mut self, program: &Program) -> Vec<Cell<Object>> {
+    pub fn read_view(&self, view: CellView<Object>) -> Option<&Object> {
+        self.heap.read_cell(view)
+    }
+
+    pub fn visit_program(&mut self, program: &Program) -> Vec<CellView<Object>> {
         let mut result = Vec::new();
         for stmt in &program.statements {
             let mark = self.heap.temp_mark();
@@ -104,7 +114,7 @@ impl<'l> Executor<'l> {
         result
     }
 
-    pub fn visit_expr(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_expr(&mut self, node: &Node) -> CellView<Object> {
         match node {
             Node::BinaryOp(op) => match op.ttype() {
                 NodeType::Add => self.visit_add(node),
@@ -142,7 +152,8 @@ impl<'l> Executor<'l> {
                 array
             }
             Node::Range(range) => {
-                let start = match self.visit_expr(&range.start).as_ref() {
+                let start_cell = self.visit_expr(&range.start);
+                let start = match self.read(start_cell) {
                     Object::Number(n) => *n,
                     _ => {
                         return self.emit_type_error(
@@ -158,7 +169,8 @@ impl<'l> Executor<'l> {
                         )
                     }
                 };
-                let end = match self.visit_expr(&range.end).as_ref() {
+                let end_cell = self.visit_expr(&range.end);
+                let end = match self.read(end_cell) {
                     Object::Number(n) => *n,
                     _ => {
                         return self.emit_type_error(
@@ -199,7 +211,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_block(&mut self, block: &Block) -> Cell<Object> {
+    fn visit_block(&mut self, block: &Block) -> CellView<Object> {
         for stmt in &block.statements {
             match stmt.as_ref() {
                 Node::Return(ret) => {
@@ -212,23 +224,22 @@ impl<'l> Executor<'l> {
                 }
                 _ => {
                     let r = self.visit_expr(stmt);
-                    match r.as_ref() {
-                        Object::Return(_) => return r,
-                        Object::Error(_) => return r,
-                        _ => (),
-                    };
+                    let unwind = matches!(self.read(r), Object::Return(_) | Object::Error(_));
+                    if unwind {
+                        return r;
+                    }
                 }
             }
         }
         self.null()
     }
 
-    fn visit_for(&mut self, forstmt: &ForStmt) -> Cell<Object> {
+    fn visit_for(&mut self, forstmt: &ForStmt) -> CellView<Object> {
         let mark = self.heap.temp_mark();
         let iter_cell = self.visit_expr(&forstmt.iter);
         self.heap.temp_push(iter_cell);
-        let iter_obj = iter_cell.as_ref();
-        let mut iterator = match iter_obj.get_iterator() {
+        let iterator = self.read(iter_cell).get_iterator(&self.heap);
+        let mut iterator = match iterator {
             Some(it) => it,
             None => {
                 return self.emit_type_error(
@@ -264,7 +275,7 @@ impl<'l> Executor<'l> {
         self.null()
     }
 
-    fn visit_declare(&mut self, decl: &Declare) -> Cell<Object> {
+    fn visit_declare(&mut self, decl: &Declare) -> CellView<Object> {
         for ident in &decl.idents {
             if let Node::Ident(id) = ident {
                 let cell = self.null();
@@ -277,7 +288,7 @@ impl<'l> Executor<'l> {
         self.null()
     }
 
-    fn visit_init(&mut self, init: &Init) -> Cell<Object> {
+    fn visit_init(&mut self, init: &Init) -> CellView<Object> {
         let value_cell = self.visit_expr(&init.value);
         let name = match *init.ident {
             Node::Ident(ref id) => id.value.clone(),
@@ -293,10 +304,10 @@ impl<'l> Executor<'l> {
         value_cell
     }
 
-    fn visit_ident(&mut self, id: &Ident) -> Cell<Object> {
+    fn visit_ident(&mut self, id: &Ident) -> CellView<Object> {
         match self.global_env.get(&id.value) {
             Some(cell) => {
-                let obj = cell.as_ref().clone();
+                let obj = self.read(cell).clone();
                 match self.constant(&obj) {
                     Some(interned) => interned,
                     None => self.heap.allocate_cell(obj),
@@ -312,7 +323,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_assign(&mut self, node: &Node) -> Cell<Object> {
+    fn visit_assign(&mut self, node: &Node) -> CellView<Object> {
         let assign = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
@@ -353,7 +364,7 @@ impl<'l> Executor<'l> {
         self.null()
     }
 
-    fn visit_func_expr(&mut self, func: &FunctionExpr) -> Cell<Object> {
+    fn visit_func_expr(&mut self, func: &FunctionExpr) -> CellView<Object> {
         let f_obj = self
             .heap
             .allocate_cell(Object::Function(FunctionType::Expr(func.clone())));
@@ -369,12 +380,12 @@ impl<'l> Executor<'l> {
         f_obj
     }
 
-    fn visit_func_anon(&mut self, func: &Function) -> Cell<Object> {
+    fn visit_func_anon(&mut self, func: &Function) -> CellView<Object> {
         self.heap
             .allocate_cell(Object::Function(FunctionType::Decl(func.clone())))
     }
 
-    fn visit_func_call(&mut self, func_call: &Call) -> Cell<Object> {
+    fn visit_func_call(&mut self, func_call: &Call) -> CellView<Object> {
         let callee_node = match func_call.func {
             Some(ref node) => node.as_ref(),
             None => {
@@ -399,23 +410,24 @@ impl<'l> Executor<'l> {
         let callee_cell = self.visit_expr(callee_node);
         self.heap.temp_push(callee_cell);
 
-        match callee_cell.as_ref() {
-            Object::Function(_) => (),
-            Object::Error(_) => {
-                return callee_cell;
-            }
-            _ => {
-                return self.emit_undefined_error(
-                    "function is not defined".to_string(),
-                    NodeParseInfo {
-                        lineno: func_call.lineno,
-                        token: func_call.token.clone(),
-                    },
-                )
-            }
+        // Decide before constructing an error, so the heap borrow is over by then.
+        let callee = self.read(callee_cell);
+        let is_callable = matches!(callee, Object::Function(_));
+        let is_error = matches!(callee, Object::Error(_));
+        if is_error {
+            return callee_cell;
+        }
+        if !is_callable {
+            return self.emit_undefined_error(
+                "function is not defined".to_string(),
+                NodeParseInfo {
+                    lineno: func_call.lineno,
+                    token: func_call.token.clone(),
+                },
+            );
         }
 
-        let mut arg_cells: Vec<Cell<Object>> = Vec::with_capacity(func_call.args.len());
+        let mut arg_cells: Vec<CellView<Object>> = Vec::with_capacity(func_call.args.len());
         for arg in &func_call.args {
             let cell = self.visit_expr(arg);
             self.heap.temp_push(cell);
@@ -432,7 +444,7 @@ impl<'l> Executor<'l> {
             });
         }
 
-        let callee_obj = callee_cell.as_ref().clone();
+        let callee_obj = self.read(callee_cell).clone();
         match callee_obj {
             Object::Function(ft) => {
                 let (param_names, body_owned): (Vec<String>, Node) = match ft {
@@ -483,7 +495,7 @@ impl<'l> Executor<'l> {
                 for cell in removed {
                     self.heap.remove_root(&cell);
                 }
-                let value = match result.as_ref() {
+                let value = match self.read(result) {
                     Object::Return(ret) => *ret,
                     _ => result,
                 };
@@ -514,7 +526,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_builtin_function(&mut self, id: &Ident, func_call: &Call) -> Cell<Object> {
+    fn visit_builtin_function(&mut self, id: &Ident, func_call: &Call) -> CellView<Object> {
         match id.value.as_str() {
             "print" => {
                 let mut printed: Vec<String> = Vec::with_capacity(func_call.args.len());
@@ -532,8 +544,8 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn resolve_display_object(&self, obj: &Cell<Object>) -> Option<String> {
-        match obj.as_ref() {
+    fn resolve_display_object(&self, obj: &CellView<Object>) -> Option<String> {
+        match self.read(*obj) {
             Object::Null => Some("null".to_string()),
             Object::Bool(b) => Some(format!("{}", b)),
             Object::Number(n) => Some(format!("{}", n)),
@@ -544,11 +556,15 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_if(&mut self, ifs: &If) -> Cell<Object> {
+    fn visit_if(&mut self, ifs: &If) -> CellView<Object> {
         let pred = self.visit_expr(&ifs.predicate);
-        match pred.as_ref() {
-            Object::Bool(true) => self.visit_expr(&ifs.block),
-            Object::Bool(false) => {
+        let taken = match self.read(pred) {
+            Object::Bool(value) => Some(*value),
+            _ => None,
+        };
+        match taken {
+            Some(true) => self.visit_expr(&ifs.block),
+            Some(false) => {
                 // Evaluate else-if chain if present
                 for alt in &ifs.else_if {
                     if let Node::If(nested_if) = alt.as_ref() {
@@ -575,15 +591,19 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn visit_while(&mut self, w: &While) -> Cell<Object> {
+    fn visit_while(&mut self, w: &While) -> CellView<Object> {
         loop {
             let pred = self.visit_expr(&w.predicate);
-            match pred.as_ref() {
-                Object::Bool(true) => {
+            let keep_going = match self.read(pred) {
+                Object::Bool(value) => Some(*value),
+                _ => None,
+            };
+            match keep_going {
+                Some(true) => {
                     let _ = self.visit_expr(&w.block);
                 }
-                Object::Bool(false) => break,
-                _ => {
+                Some(false) => break,
+                None => {
                     return self.emit_type_error(
                         "predicate must be boolean".to_string(),
                         NodeParseInfo {
@@ -597,14 +617,18 @@ impl<'l> Executor<'l> {
         self.null()
     }
 
-    pub fn visit_lt(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_lt(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
         let (mark, l, r) = self.eval_operands(op);
-        let out = match (l.as_ref(), r.as_ref()) {
-            (Object::Number(a), Object::Number(b)) => self.boolean(a < b),
+        let operands = match (self.read(l), self.read(r)) {
+            (Object::Number(a), Object::Number(b)) => Some((*a, *b)),
+            _ => None,
+        };
+        let out = match operands {
+            Some((a, b)) => self.boolean(a < b),
             _ => self.emit_type_error(
                 "expected numbers for <".to_string(),
                 NodeParseInfo {
@@ -617,14 +641,18 @@ impl<'l> Executor<'l> {
         out
     }
 
-    pub fn visit_lte(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_lte(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
         let (mark, l, r) = self.eval_operands(op);
-        let out = match (l.as_ref(), r.as_ref()) {
-            (Object::Number(a), Object::Number(b)) => self.boolean(a <= b),
+        let operands = match (self.read(l), self.read(r)) {
+            (Object::Number(a), Object::Number(b)) => Some((*a, *b)),
+            _ => None,
+        };
+        let out = match operands {
+            Some((a, b)) => self.boolean(a <= b),
             _ => self.emit_type_error(
                 "expected numbers for <=".to_string(),
                 NodeParseInfo {
@@ -637,14 +665,18 @@ impl<'l> Executor<'l> {
         out
     }
 
-    pub fn visit_gt(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_gt(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
         let (mark, l, r) = self.eval_operands(op);
-        let out = match (l.as_ref(), r.as_ref()) {
-            (Object::Number(a), Object::Number(b)) => self.boolean(a > b),
+        let operands = match (self.read(l), self.read(r)) {
+            (Object::Number(a), Object::Number(b)) => Some((*a, *b)),
+            _ => None,
+        };
+        let out = match operands {
+            Some((a, b)) => self.boolean(a > b),
             _ => self.emit_type_error(
                 "expected numbers for >".to_string(),
                 NodeParseInfo {
@@ -657,14 +689,18 @@ impl<'l> Executor<'l> {
         out
     }
 
-    pub fn visit_gte(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_gte(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
         let (mark, l, r) = self.eval_operands(op);
-        let out = match (l.as_ref(), r.as_ref()) {
-            (Object::Number(a), Object::Number(b)) => self.boolean(a >= b),
+        let operands = match (self.read(l), self.read(r)) {
+            (Object::Number(a), Object::Number(b)) => Some((*a, *b)),
+            _ => None,
+        };
+        let out = match operands {
+            Some((a, b)) => self.boolean(a >= b),
             _ => self.emit_type_error(
                 "expected numbers for >=".to_string(),
                 NodeParseInfo {
@@ -677,13 +713,13 @@ impl<'l> Executor<'l> {
         out
     }
 
-    pub fn visit_eq(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_eq(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
         let (mark, l, r) = self.eval_operands(op);
-        let res = match (l.as_ref(), r.as_ref()) {
+        let res = match (self.read(l), self.read(r)) {
             (Object::Number(a), Object::Number(b)) => a == b,
             (Object::Bool(a), Object::Bool(b)) => a == b,
             (Object::String(a), Object::String(b)) => a == b,
@@ -694,13 +730,13 @@ impl<'l> Executor<'l> {
         self.boolean(res)
     }
 
-    pub fn visit_neq(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_neq(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!(),
         };
         let (mark, l, r) = self.eval_operands(op);
-        let res = match (l.as_ref(), r.as_ref()) {
+        let res = match (self.read(l), self.read(r)) {
             (Object::Number(a), Object::Number(b)) => a != b,
             (Object::Bool(a), Object::Bool(b)) => a != b,
             (Object::String(a), Object::String(b)) => a != b,
@@ -711,7 +747,7 @@ impl<'l> Executor<'l> {
         self.boolean(res)
     }
 
-    pub fn visit_add(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_add(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_mul should only be called with Node::BinaryOp"),
@@ -736,7 +772,7 @@ impl<'l> Executor<'l> {
         out
     }
 
-    pub fn visit_sub(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_sub(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_sub should only be called with Node::BinaryOp"),
@@ -760,7 +796,7 @@ impl<'l> Executor<'l> {
         out
     }
 
-    pub fn visit_mul(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_mul(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_mul should only be called with Node::BinaryOp"),
@@ -784,7 +820,7 @@ impl<'l> Executor<'l> {
         out
     }
 
-    pub fn visit_div(&mut self, node: &Node) -> Cell<Object> {
+    pub fn visit_div(&mut self, node: &Node) -> CellView<Object> {
         let op = match node {
             Node::BinaryOp(op) => op,
             _ => unreachable!("visit_div should only be called with Node::BinaryOp"),
@@ -820,11 +856,11 @@ impl<'l> Executor<'l> {
     fn resolve_func_expr(
         &mut self,
         func_type: &FunctionType,
-    ) -> Result<Cell<Object>, &'static str> {
+    ) -> Result<CellView<Object>, &'static str> {
         match func_type {
             FunctionType::Expr(func) => {
                 let f_ret = self.visit_func_expr(func);
-                match f_ret.as_ref() {
+                match self.read(f_ret) {
                     Object::Number(_) => Ok(f_ret.clone()),
                     _ => Err("Cannot not add type"),
                 }
@@ -833,7 +869,7 @@ impl<'l> Executor<'l> {
         }
     }
 
-    fn emit_recursion_limit_reached_error(&mut self, parse_info: NodeParseInfo) -> Cell<Object> {
+    fn emit_recursion_limit_reached_error(&mut self, parse_info: NodeParseInfo) -> CellView<Object> {
         let msg = format!(
             "Runtime Error at line {}: Recursion limit reached\n",
             parse_info.lineno
@@ -850,7 +886,7 @@ impl<'l> Executor<'l> {
         }))
     }
 
-    fn emit_type_error(&mut self, msg: String, parse_info: NodeParseInfo) -> Cell<Object> {
+    fn emit_type_error(&mut self, msg: String, parse_info: NodeParseInfo) -> CellView<Object> {
         let (err_type, error_msg) = match parse_info.token.ttype {
             TType::Num => (
                 ErrType::TypeError("cannot use a number here".to_owned()),
@@ -880,7 +916,7 @@ impl<'l> Executor<'l> {
         }))
     }
 
-    fn emit_division_by_zero_error(&mut self, parse_info: NodeParseInfo) -> Cell<Object> {
+    fn emit_division_by_zero_error(&mut self, parse_info: NodeParseInfo) -> CellView<Object> {
         let msg = format!(
             "Runtime Error at line {}: Division by zero\n",
             parse_info.lineno
@@ -897,7 +933,7 @@ impl<'l> Executor<'l> {
         }))
     }
 
-    fn emit_undefined_error(&mut self, msg: String, parse_info: NodeParseInfo) -> Cell<Object> {
+    fn emit_undefined_error(&mut self, msg: String, parse_info: NodeParseInfo) -> CellView<Object> {
         let offset = parse_info.token.offset;
         self.heap.allocate_cell(Object::Error(ErrorObj {
             run_time_error: Some(RuntimeError::UndefinedIdentifier(ErrInfo {
@@ -916,7 +952,7 @@ impl<'l> Executor<'l> {
         &mut self,
         msg: String,
         parse_info: NodeParseInfo,
-    ) -> Cell<Object> {
+    ) -> CellView<Object> {
         let offset = parse_info.token.offset;
         self.heap.allocate_cell(Object::Error(ErrorObj {
             run_time_error: Some(RuntimeError::InvalidFunctionCall(ErrInfo {
@@ -929,12 +965,12 @@ impl<'l> Executor<'l> {
         }))
     }
 
-    fn extract_number(&mut self, obj: &Cell<Object>) -> Result<i32, &'static str> {
-        match obj.as_ref() {
-            Object::Number(val) => Ok(*val),
+    fn extract_number(&mut self, obj: &CellView<Object>) -> Result<i32, &'static str> {
+        match self.read(*obj).clone() {
+            Object::Number(val) => Ok(val),
             Object::Function(func_type) => {
-                let ret = self.resolve_func_expr(func_type)?;
-                match ret.as_ref() {
+                let ret = self.resolve_func_expr(&func_type)?;
+                match self.read(ret) {
                     Object::Number(v) => Ok(*v),
                     _ => unreachable!("Unexpected code path"),
                 }

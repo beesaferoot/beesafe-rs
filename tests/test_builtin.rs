@@ -14,7 +14,7 @@ fn test_print_builtin_returns_null() {
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Null => (),
         other => panic!("expected Null from print, got {:?}", other),
     }

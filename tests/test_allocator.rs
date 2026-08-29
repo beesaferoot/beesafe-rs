@@ -1,4 +1,4 @@
-use beesafe::allocator::{Allocator, Cell, Heap, Markable};
+use beesafe::allocator::{Allocator, CellView, Heap, Markable};
 use beesafe::symbols::Object as BeeSafeObject;
 
 #[derive(Debug, PartialEq)]
@@ -7,7 +7,7 @@ enum Object {
 }
 
 impl Markable<Object> for Object {
-    fn get_references(&self) -> Vec<Cell<Object>> {
+    fn get_references(&self) -> Vec<CellView<Object>> {
         Vec::new()
     }
 }
@@ -24,11 +24,11 @@ fn test_heap_allocate() {
     let mut heap = Heap::new();
     let c1 = heap.allocate_cell(Object::Number(3));
 
-    assert_eq!(c1.as_ref(), &Object::Number(3));
+    assert_eq!(heap.read_cell(c1), Some(&Object::Number(3)));
     // free c1
     heap.free_cell(c1);
 
-    assert_eq!(heap.view_cell(c1), None);
+    assert_eq!(heap.read_cell(c1), None);
     // dbg!(c1);
 }
 
@@ -144,7 +144,7 @@ fn test_automatic_gc_trigger() {
     assert_eq!(heap.get_cells_count(), 2);
     assert!(heap.is_marked(&obj1));
     assert!(!heap.is_marked(&obj2));
-    assert!(heap.view_cell(obj4).is_some());
+    assert!(heap.read_cell(obj4).is_some());
 }
 
 #[test]
@@ -175,7 +175,7 @@ impl Drop for Counted {
 }
 
 impl Markable<Counted> for Counted {
-    fn get_references(&self) -> Vec<Cell<Counted>> {
+    fn get_references(&self) -> Vec<CellView<Counted>> {
         Vec::new()
     }
 }

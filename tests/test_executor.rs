@@ -14,7 +14,8 @@ fn test_add_expression_eval() {
 
     let mut exec = executor::Executor::new(&mut env, &parser);
 
-    let result = match exec.visit_expr(&program.statements[0]).as_ref() {
+    let exec_first = exec.visit_expr(&program.statements[0]);
+    let result = match exec.read_view(exec_first).unwrap() {
         Object::Number(num) => Some(*num),
         _ => None,
     };
@@ -35,7 +36,7 @@ fn test_for_over_range_exec() {
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
-    match results[0].as_ref() {
+    match exec.read_view(results[0]).unwrap() {
         Object::Null => (),
         _ => panic!("expected Null from for-loop execution"),
     }
@@ -55,7 +56,7 @@ fn test_for_over_array_exec() {
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
-    match results[0].as_ref() {
+    match exec.read_view(results[0]).unwrap() {
         Object::Null => (),
         _ => panic!("expected Null from for-loop execution"),
     }
@@ -75,7 +76,7 @@ fn test_for_over_string_exec() {
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
-    match results[0].as_ref() {
+    match exec.read_view(results[0]).unwrap() {
         Object::Null => (),
         _ => panic!("expected Null from for-loop execution"),
     }
@@ -95,7 +96,7 @@ fn test_for_non_iterable_error() {
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
-    match results[0].as_ref() {
+    match exec.read_view(results[0]).unwrap() {
         Object::Error(_) => (),
         _ => panic!("expected Error when iterating a non-iterable"),
     }
@@ -121,7 +122,7 @@ fn test_comparisons_exec() {
     let results = exec.visit_program(&program);
     let bools: Vec<bool> = results
         .into_iter()
-        .map(|c| match c.as_ref() {
+        .map(|c| match exec.read_view(c).unwrap() {
             Object::Bool(b) => *b,
             _ => false,
         })
@@ -151,7 +152,7 @@ fn test_declare_init_ident_and_if_while() {
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 0),
         other => panic!("expected final y to be 0, got {:?}", other),
     }
@@ -173,7 +174,7 @@ fn test_function_define_and_call() {
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 5),
         other => panic!("expected 5, got {:?}", other),
     }
@@ -195,7 +196,7 @@ fn test_function_expression_and_call() {
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::String(s) => assert_eq!(*s, "flower"),
         other => panic!("expected 'flower', got {:?}", other),
     }
@@ -222,7 +223,7 @@ fn test_else_if_chaining_exec_if_branch() {
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 1),
         other => panic!("expected 1, got {:?}", other),
     }
@@ -249,7 +250,7 @@ fn test_else_if_chaining_exec_else_if_branch() {
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 2),
         other => panic!("expected 2, got {:?}", other),
     }
@@ -276,7 +277,7 @@ fn test_else_if_chaining_exec_else_branch() {
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 3),
         other => panic!("expected 3, got {:?}", other),
     }
@@ -295,7 +296,7 @@ fn test_invalid_function_call() {
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Error(_) => (),
         other => panic!("expected Error for undefined function printl, got {:?}", other),
     }
@@ -323,7 +324,7 @@ fn test_recursive_function_call(){
     let mut env = environment::Environment::new();
     let mut exec = executor::Executor::new(&mut env, &parser);
     let results = exec.visit_program(&program);
-    match results.last().unwrap().as_ref() {
+    match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Null => (),
         v => panic!("expected Null from built-in print, got {:?}", v)
     }

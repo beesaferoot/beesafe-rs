@@ -4,7 +4,7 @@ use miette::{Diagnostic, SourceSpan};
     Symbol objects for beesafe
 */
 use crate::{
-    allocator::{Cell, Markable},
+    allocator::{Allocator, CellView, Heap, Markable},
     ast::{Function as Func, FunctionExpr as FuncExpr},
     environment::Environment,
 };
@@ -18,11 +18,11 @@ pub enum Object {
     Number(i32),
     String(String),
     Float(f32),
-    Array(Vec<Cell<Object>>),
+    Array(Vec<CellView<Object>>),
     Range(RangeObj),
     Iterator(IteratorObj),
     Function(FunctionType),
-    Return(Cell<Object>),
+    Return(CellView<Object>),
 }
 
 #[derive(Debug, Clone)]
@@ -171,12 +171,15 @@ impl Object {
         }
     }
 
-    pub fn get_iterator(&self) -> Option<IteratorObj> {
+    pub fn get_iterator(&self, heap: &Heap<Object>) -> Option<IteratorObj> {
         match self {
             Object::Array(cells) => {
                 let mut items = Vec::new();
                 for cell in cells {
-                    items.push(cell.as_ref().clone());
+                    match heap.read_cell(*cell) {
+                        Some(value) => items.push(value.clone()),
+                        None => return None,
+                    }
                 }
                 Some(IteratorObj { current: 0, items })
             }
@@ -218,7 +221,7 @@ impl IteratorObj {
 impl Markable<Object> for Object {
     // No wildcard arm: adding a variant that holds a Cell must not silently
     // default to "has no references", which would sweep it while live.
-    fn get_references(&self) -> Vec<Cell<Object>> {
+    fn get_references(&self) -> Vec<CellView<Object>> {
         match self {
             Object::Array(elements) => elements.clone(),
             Object::Return(cell) => vec![*cell],

@@ -32,7 +32,10 @@ impl Interpreter {
 
         let mut exec = Executor::new(&mut self.env, &parser);
         let results = exec.visit_program(&program);
-        results.into_iter().map(|c| c.as_ref().clone()).collect()
+        results
+            .into_iter()
+            .filter_map(|view| exec.read_view(view).cloned())
+            .collect()
     }
 
     pub fn run_file<P: AsRef<Path>>(&mut self, path: P) -> Result<Vec<Object>, String> {
