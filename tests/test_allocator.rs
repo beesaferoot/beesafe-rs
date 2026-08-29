@@ -161,3 +161,38 @@ fn test_manual_gc_force() {
     assert_eq!(heap.get_cells_count(), 1);
     assert_eq!(heap.get_allocation_count(), 0);
 }
+
+/// Counts drops so the heap's own Drop can be observed. Carries a payload
+/// because Cell hashes by address, and every zero-sized allocation shares one.
+struct Counted(u64);
+
+static DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        DROPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Markable<Counted> for Counted {
+    fn get_references(&self) -> Vec<Cell<Counted>> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn dropping_the_heap_frees_every_cell() {
+    use std::sync::atomic::Ordering::SeqCst;
+    DROPPED.store(0, SeqCst);
+    {
+        let mut heap: Heap<Counted> = Heap::new();
+        heap.set_gc_threshold(1000);
+        for _ in 0..5 {
+            heap.allocate_cell(Counted(0));
+        }
+        heap.intern(Counted(1));
+        assert_eq!(DROPPED.load(SeqCst), 0);
+    }
+    // Five collectable cells plus the interned one, each freed exactly once.
+    assert_eq!(DROPPED.load(SeqCst), 6);
+}
