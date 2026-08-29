@@ -204,6 +204,7 @@ impl<'l> Executor<'l> {
             Node::Call(func_call) => {
                 return self.visit_func_call(func_call);
             }
+            Node::UniaryOp(op) => self.visit_unary(op),
             _ => {
                 println!("todo node {:?}", node);
                 todo!()
@@ -362,6 +363,37 @@ impl<'l> Executor<'l> {
             }
         }
         self.null()
+    }
+
+    fn visit_unary(&mut self, op: &UniaryOp) -> CellView<Object> {
+        let mark = self.heap.temp_mark();
+        let operand = self.visit_expr(&op.right);
+        self.heap.temp_push(operand);
+
+        // Fold to an owned value first: the heap borrow has to end before an
+        // error can be allocated.
+        let folded = match (op.token.ttype, self.read(operand)) {
+            // wrapping_neg so the most negative integer does not panic.
+            (TType::Minus, Object::Number(value)) => Some(Object::Number(value.wrapping_neg())),
+            (TType::Bang, Object::Bool(value)) => Some(Object::Bool(!value)),
+            _ => None,
+        };
+
+        let out = match folded {
+            Some(value) => match self.constant(&value) {
+                Some(interned) => interned,
+                None => self.heap.allocate_cell(value),
+            },
+            None => self.emit_type_error(
+                format!("cannot apply '{}' to this type", op.token.lexeme),
+                NodeParseInfo {
+                    lineno: op.lineno,
+                    token: op.token.clone(),
+                },
+            ),
+        };
+        self.heap.temp_release(mark);
+        out
     }
 
     fn visit_func_expr(&mut self, func: &FunctionExpr) -> CellView<Object> {

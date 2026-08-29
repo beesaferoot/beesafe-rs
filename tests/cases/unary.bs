@@ -1,0 +1,20 @@
+print(-3)
+print(!true, !false)
+print(-(1 + 2))
+print(--3)
+
+init x = 7
+print(-x)
+print(-5000)
+
+init flag = false
+if (!flag) { print("negated") }
+
+// ---
+// -3
+// false true
+// -3
+// 3
+// -7
+// -5000
+// negated
