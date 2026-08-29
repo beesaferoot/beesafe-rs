@@ -1,0 +1,39 @@
+define first_over(limit) {
+    for x in 0..10 {
+        if (x > limit) { return x }
+    }
+    return 0 - 1
+}
+print(first_over(3))
+
+define count_to(stop) {
+    init i = 0
+    while (i < 10) {
+        if (i == stop) { return i }
+        init i = i + 1
+    }
+    return 0 - 1
+}
+print(count_to(4))
+
+define nested() {
+    for a in 0..2 {
+        for b in 0..2 {
+            if (b == 1) { return a }
+        }
+    }
+    return 0 - 1
+}
+print(nested())
+
+for x in 0..2 { print(x) }
+print("done")
+
+// ---
+// 4
+// 4
+// 0
+// 0
+// 1
+// 2
+// done

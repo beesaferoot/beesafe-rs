@@ -267,7 +267,11 @@ impl<'l> Executor<'l> {
                     }
                     self.heap.add_root(cell);
                 }
-                let _ = self.visit_expr(&forstmt.block);
+                let body = self.visit_expr(&forstmt.block);
+                if matches!(self.read(body), Object::Return(_) | Object::Error(_)) {
+                    self.heap.temp_release(mark);
+                    return body;
+                }
             } else {
                 break;
             }
@@ -632,7 +636,12 @@ impl<'l> Executor<'l> {
             };
             match keep_going {
                 Some(true) => {
-                    let _ = self.visit_expr(&w.block);
+                    // A return or an error in the body unwinds the loop, the
+                    // same way visit_block stops at one.
+                    let body = self.visit_expr(&w.block);
+                    if matches!(self.read(body), Object::Return(_) | Object::Error(_)) {
+                        return body;
+                    }
                 }
                 Some(false) => break,
                 None => {
