@@ -196,3 +196,48 @@ fn dropping_the_heap_frees_every_cell() {
     // Five collectable cells plus the interned one, each freed exactly once.
     assert_eq!(DROPPED.load(SeqCst), 6);
 }
+
+#[test]
+fn a_view_does_not_survive_its_cell_being_freed() {
+    let mut heap: Heap<Object> = Heap::new();
+    heap.set_gc_threshold(1_000_000);
+
+    let stale = heap.allocate_cell(Object::Number(111));
+    heap.free_cell(stale);
+    let fresh = heap.allocate_cell(Object::Number(222));
+
+    // The freed position is reused, so only the version separates the two
+    // occupants. Without it the stale view would read back as 222.
+    assert_eq!(heap.get_cells_count(), 1);
+    assert_ne!(stale, fresh);
+    assert_eq!(heap.read_cell(stale), None);
+    assert_eq!(heap.read_cell(fresh), Some(&Object::Number(222)));
+}
+
+#[test]
+fn a_view_does_not_survive_collection_of_its_cell() {
+    let mut heap: Heap<Object> = Heap::new();
+    heap.set_gc_threshold(1_000_000);
+
+    let unrooted = heap.allocate_cell(Object::Number(7));
+    heap.force_gc();
+    let reused = heap.allocate_cell(Object::Number(8));
+
+    assert_eq!(heap.read_cell(unrooted), None);
+    assert_eq!(heap.read_cell(reused), Some(&Object::Number(8)));
+}
+
+#[test]
+fn an_interned_view_survives_collection() {
+    let mut heap: Heap<Object> = Heap::new();
+    heap.set_gc_threshold(1_000_000);
+
+    let constant = heap.intern(Object::Number(42));
+    for _ in 0..5 {
+        heap.allocate_cell(Object::Number(0));
+    }
+    heap.force_gc();
+
+    assert_eq!(heap.read_cell(constant), Some(&Object::Number(42)));
+    assert_eq!(heap.get_cells_count(), 1);
+}
