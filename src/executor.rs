@@ -5,6 +5,7 @@ use crate::lexer::TType;
 use crate::lexer::Token;
 use crate::parser::Parser;
 use crate::symbols::*;
+use miette::SourceSpan;
 
 // Integers in this range are interned rather than allocated.
 const SMALL_INT_MIN: i32 = -128;
@@ -206,9 +207,26 @@ impl<'l> Executor<'l> {
             }
             Node::UniaryOp(op) => self.visit_unary(op),
             Node::Index(index) => self.visit_index(index),
-            _ => {
-                println!("todo node {:?}", node);
-                todo!()
+            Node::Return(ret) => {
+                let mark = self.heap.temp_mark();
+                let value = self.visit_expr(&ret.value);
+                self.heap.temp_push(value);
+                let wrapped = self.heap.allocate_cell(Object::Return(value));
+                self.heap.temp_release(mark);
+                wrapped
+            }
+            // A node the parser rejected. Carry its diagnostic through as a value
+            // rather than evaluating a tree that is known to be wrong.
+            Node::Error(err) => {
+                let msg = format!("{}", err.error_type);
+                self.emit_runtime_error(msg, err.span)
+            }
+            other => {
+                let span = node_span(other).unwrap_or_else(|| (0, 0).into());
+                self.emit_runtime_error(
+                    format!("unsupported construct: {}", node_name(other)),
+                    span,
+                )
             }
         }
     }
@@ -1008,6 +1026,19 @@ impl<'l> Executor<'l> {
         }))
     }
 
+    /// Builds an error value from a span directly, for nodes that carry no token.
+    fn emit_runtime_error(&mut self, msg: String, span: SourceSpan) -> CellView<Object> {
+        self.heap.allocate_cell(Object::Error(ErrorObj {
+            type_error: None,
+            run_time_error: Some(RuntimeError::InvalidFunctionCall(ErrInfo {
+                err_type: ErrType::RuntimeError(msg.clone()),
+                msg,
+                src: self.parser.source(),
+                span,
+            })),
+        }))
+    }
+
     fn emit_index_error(
         &mut self,
         offset: i32,
@@ -1106,7 +1137,7 @@ impl<'l> Executor<'l> {
                 let ret = self.resolve_func_expr(&func_type)?;
                 match self.read(ret) {
                     Object::Number(v) => Ok(*v),
-                    _ => unreachable!("Unexpected code path"),
+                    _ => Err("expected a number type"),
                 }
             }
             Object::Error(obj) => {
@@ -1118,11 +1149,33 @@ impl<'l> Executor<'l> {
     }
 }
 
+fn node_span(node: &Node) -> Option<SourceSpan> {
+    node_token(node).map(|token| (token.offset as usize, token.lexeme.len()).into())
+}
+
+fn node_name(node: &Node) -> &'static str {
+    match node {
+        Node::Program(_) => "program",
+        Node::Block(_) => "block",
+        Node::Return(_) => "return",
+        Node::Error(_) => "parse error",
+        _ => "expression",
+    }
+}
+
 fn node_token(node: &Node) -> Option<Token> {
     match node {
         Node::Ident(id) => Some(id.token.clone()),
         Node::Index(index) => Some(index.token.clone()),
         Node::Number(number) => Some(number.token.clone()),
+        Node::Return(ret) => Some(ret.token.clone()),
+        Node::While(node) => Some(node.token.clone()),
+        Node::If(node) => Some(node.token.clone()),
+        Node::For(node) => Some(node.token.clone()),
+        Node::UniaryOp(node) => Some(node.token.clone()),
+        Node::BinaryOp(node) => Some(node.token.clone()),
+        Node::Boolean(node) => Some(node.token.clone()),
+        Node::StringLiteral(node) => Some(node.token.clone()),
         _ => None,
     }
 }

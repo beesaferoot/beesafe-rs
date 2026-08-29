@@ -1,0 +1,9 @@
+return 1
+print("execution continues")
+
+define f() { return 7 }
+print(f())
+
+// ---
+// execution continues
+// 7
