@@ -205,6 +205,7 @@ impl<'l> Executor<'l> {
                 return self.visit_func_call(func_call);
             }
             Node::UniaryOp(op) => self.visit_unary(op),
+            Node::Index(index) => self.visit_index(index),
             _ => {
                 println!("todo node {:?}", node);
                 todo!()
@@ -334,39 +335,119 @@ impl<'l> Executor<'l> {
             _ => unreachable!(),
         };
 
+        let mark = self.heap.temp_mark();
         let value_cell = self.visit_expr(&assign.right);
-        let (name, id_ref) = match assign.left.as_ref() {
-            Node::Ident(ref id) => (id.value.clone(), id),
-            _ => (
-                String::from(""),
-                &Ident {
-                    value: String::new(),
-                    lineno: 0,
-                    token: Token {
-                        lexeme: String::new(),
-                        ttype: TType::Id,
-                        offset: 0,
-                    },
+        self.heap.temp_push(value_cell);
+
+        let out = match assign.left.as_ref() {
+            Node::Ident(id) => self.assign_to_name(id, value_cell),
+            Node::Index(index) => self.assign_to_index(index, value_cell),
+            other => self.emit_type_error(
+                "left side of an assignment must be a name or an index".to_string(),
+                NodeParseInfo {
+                    lineno: assign.lineno,
+                    token: node_token(other).unwrap_or_else(|| assign.token.clone()),
                 },
             ),
         };
-        if name.len() > 0 {
-            if self.global_env.get(&name).is_some() {
-                self.heap.add_root(value_cell);
-                if let Some(prev) = self.global_env.assign(&name, value_cell) {
-                    self.heap.remove_root(&prev);
-                }
-            } else {
-                return self.emit_undefined_error(
-                    format!("undefined identifier '{}'", name),
-                    NodeParseInfo {
-                        lineno: id_ref.lineno,
-                        token: id_ref.token.clone(),
-                    },
-                );
-            }
+        self.heap.temp_release(mark);
+        out
+    }
+
+    fn assign_to_name(&mut self, id: &Ident, value_cell: CellView<Object>) -> CellView<Object> {
+        if self.global_env.get(&id.value).is_none() {
+            return self.emit_undefined_error(
+                format!("undefined identifier '{}'", id.value),
+                NodeParseInfo {
+                    lineno: id.lineno,
+                    token: id.token.clone(),
+                },
+            );
+        }
+        self.heap.add_root(value_cell);
+        if let Some(prev) = self.global_env.assign(&id.value, value_cell) {
+            self.heap.remove_root(&prev);
         }
         self.null()
+    }
+
+    fn assign_to_index(&mut self, index: &Index, value_cell: CellView<Object>) -> CellView<Object> {
+        let (target, offset) = match self.resolve_index(index) {
+            Ok(resolved) => resolved,
+            Err(error) => return error,
+        };
+        // The array owns the element view from here, so root it before the old
+        // one is dropped.
+        self.heap.add_root(value_cell);
+        let previous = match self.heap.read_mut_cell(target) {
+            Some(Object::Array(elements)) => std::mem::replace(&mut elements[offset], value_cell),
+            _ => unreachable!("resolve_index already checked the target is an array"),
+        };
+        self.heap.remove_root(&previous);
+        self.null()
+    }
+
+    // Resolves an index expression to the position it names, so both reading and
+    // assigning can share the bounds checking.
+    fn resolve_index(&mut self, index: &Index) -> Result<(CellView<Object>, usize), CellView<Object>> {
+        let mark = self.heap.temp_mark();
+        // Resolve a named target to its binding rather than evaluating it:
+        // visit_ident hands back a copy, and writing to a copy is a silent no-op.
+        let target = match index.object.as_ref() {
+            Node::Ident(id) => match self.global_env.get(&id.value) {
+                Some(cell) => cell,
+                None => {
+                    return Err(self.emit_undefined_error(
+                        format!("undefined identifier '{}'", id.value),
+                        NodeParseInfo {
+                            lineno: id.lineno,
+                            token: id.token.clone(),
+                        },
+                    ))
+                }
+            },
+            other => self.visit_expr(other),
+        };
+        self.heap.temp_push(target);
+        let position = self.visit_expr(&index.index);
+        self.heap.temp_push(position);
+
+        let info = || NodeParseInfo {
+            lineno: index.lineno,
+            token: index.token.clone(),
+        };
+
+        let offset = match self.read(position) {
+            Object::Number(value) => *value,
+            _ => {
+                self.heap.temp_release(mark);
+                return Err(self.emit_type_error("index must be a number".to_string(), info()));
+            }
+        };
+        let length = match self.read(target) {
+            Object::Array(elements) => elements.len(),
+            _ => {
+                self.heap.temp_release(mark);
+                return Err(self.emit_type_error("object is not indexable".to_string(), info()));
+            }
+        };
+
+        self.heap.temp_release(mark);
+        if offset < 0 || offset as usize >= length {
+            return Err(self.emit_index_error(offset, length, info()));
+        }
+        Ok((target, offset as usize))
+    }
+
+    fn visit_index(&mut self, index: &Index) -> CellView<Object> {
+        let (target, offset) = match self.resolve_index(index) {
+            Ok(resolved) => resolved,
+            Err(error) => return error,
+        };
+        match self.read(target) {
+            Object::Array(elements) => elements[offset],
+            _ => unreachable!("resolve_index already checked the target is an array"),
+        }
     }
 
     fn visit_unary(&mut self, op: &UniaryOp) -> CellView<Object> {
@@ -927,6 +1008,18 @@ impl<'l> Executor<'l> {
         }))
     }
 
+    fn emit_index_error(
+        &mut self,
+        offset: i32,
+        length: usize,
+        parse_info: NodeParseInfo,
+    ) -> CellView<Object> {
+        self.emit_type_error(
+            format!("index {} is out of bounds for length {}", offset, length),
+            parse_info,
+        )
+    }
+
     fn emit_type_error(&mut self, msg: String, parse_info: NodeParseInfo) -> CellView<Object> {
         let (err_type, error_msg) = match parse_info.token.ttype {
             TType::Num => (
@@ -1022,6 +1115,15 @@ impl<'l> Executor<'l> {
             }
             _ => Err("expected a number type"),
         }
+    }
+}
+
+fn node_token(node: &Node) -> Option<Token> {
+    match node {
+        Node::Ident(id) => Some(id.token.clone()),
+        Node::Index(index) => Some(index.token.clone()),
+        Node::Number(number) => Some(number.token.clone()),
+        _ => None,
     }
 }
 

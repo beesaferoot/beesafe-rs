@@ -1,0 +1,33 @@
+init a = [10, 20, 30]
+print(a[0], a[1], a[2])
+
+a[0] = 99
+print(a[0], a[1], a[2])
+
+init i = 1
+print(a[i + 1])
+
+init counters = [0, 0, 0]
+for n in 0..2 {
+    counters[n] = n * 10
+}
+print(counters[0], counters[1], counters[2])
+
+init b = a
+a[1] = 7
+print(a[1], b[1])
+
+define build() {
+    init out = [1, 2]
+    out[0] = 5
+    return out[0]
+}
+print(build())
+
+// ---
+// 10 20 30
+// 99 20 30
+// 30
+// 0 10 20
+// 7 20
+// 5
