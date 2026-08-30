@@ -23,6 +23,7 @@ Executor
 [+] Function definition, calls, and returns
 [+] Evaluate string literals and unary/binary +/- on numbers
 [+] Evaluate range to iterator
+[-] Add lexical scoping and closures
 
 
 GC
@@ -31,3 +32,13 @@ GC
 
 VM
 [-] Attempt to implement a Byte-code VM
+
+Typechecking 
+[-] Add adaptive typechecking
+[-] Support type annotations on bindings and functions
+[-] Support type definitions and aliases
+[-] Infer types where annotations are missing
+[-] Support union and optional types
+[-] Narrow types in conditionals
+[-] Keep unannotated code dynamic
+[-] Report type errors before execution
