@@ -2,8 +2,8 @@ use beesafe::interpreter::Interpreter;
 use beesafe::source::SourceMap;
 use beesafe::symbols::Object;
 use rustyline::error::ReadlineError;
-use beesafe::repl::{input_state, InputState, ReplRenderer};
-use rustyline::Editor;
+use beesafe::repl::{input_state, InputState, ReplRenderer, TabHandler};
+use rustyline::{Editor, EventHandler, KeyEvent};
 use std::env;
 use std::path::PathBuf;
 
@@ -89,6 +89,10 @@ fn main() {
 fn repl(existing: Option<Interpreter>, debug: bool) {
     let mut rl = Editor::new().unwrap();
     rl.set_helper(Some(ReplRenderer::new()));
+    rl.bind_sequence(
+        KeyEvent::from('\t'),
+        EventHandler::Conditional(Box::new(TabHandler)),
+    );
 
     let mut interp = existing.unwrap_or_else(Interpreter::new);
     let mut buffer = String::new();

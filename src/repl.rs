@@ -10,7 +10,7 @@ use rustyline::completion::Completer;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
-use rustyline::{Context, Helper};
+use rustyline::{Cmd, ConditionalEventHandler, Context, Event, EventContext, Helper, RepeatCount};
 
 use crate::builtins::BUILTINS;
 use crate::lexer::{Lexer, TType, Token};
@@ -70,6 +70,9 @@ impl ReplRenderer {
     }
 
     fn candidates(&self, prefix: &str) -> Vec<String> {
+        if prefix.is_empty() {
+            return Vec::new();
+        }
         let mut found: Vec<String> = KEYWORDS
             .iter()
             .map(|word| word.to_string())
@@ -158,6 +161,28 @@ impl Hinter for ReplRenderer {
 impl Validator for ReplRenderer {}
 
 impl Helper for ReplRenderer {}
+
+/// Indent width used when Tab has no word to complete.
+pub const INDENT: &str = "    ";
+
+/// Tab completes a word, and indents when there is no word under the cursor.
+pub struct TabHandler;
+
+impl ConditionalEventHandler for TabHandler {
+    fn handle(
+        &self,
+        _evt: &Event,
+        n: RepeatCount,
+        _positive: bool,
+        ctx: &EventContext<'_>,
+    ) -> Option<Cmd> {
+        let before = &ctx.line()[..ctx.pos()];
+        match before.chars().next_back() {
+            Some(c) if c.is_alphanumeric() || c == '_' => None,
+            _ => Some(Cmd::Insert(n, INDENT.to_string())),
+        }
+    }
+}
 
 fn tokens(src: &str) -> Vec<Token> {
     Lexer::new(src).parse_tokens()
@@ -264,6 +289,13 @@ mod tests {
         assert!(painted.contains(&format!("{}init{}", KEYWORD, RESET)));
         assert!(painted.contains(&format!("{}\"hi\"{}", STRING, RESET)));
         assert!(painted.contains(&format!("{}// note{}", COMMENT, RESET)));
+    }
+
+    #[test]
+    fn an_empty_prefix_offers_nothing() {
+        let mut renderer = ReplRenderer::new();
+        renderer.set_names(vec!["thing".to_string()]);
+        assert!(renderer.candidates("").is_empty());
     }
 
     #[test]
