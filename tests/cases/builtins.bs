@@ -1,0 +1,24 @@
+print(len("hello"))
+print(len("café"))
+print(len(""))
+print(len([1, 2, 3]))
+print(len([]))
+print(len(0..3))
+print(len(2..2))
+
+init f = len
+print(f("abcd"))
+
+define len(x) { return 0 - 1 }
+print(len("shadowed"))
+
+// ---
+// 5
+// 4
+// 0
+// 3
+// 0
+// 4
+// 1
+// 4
+// -1

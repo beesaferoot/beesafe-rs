@@ -1,4 +1,5 @@
 use crate::allocator::{Allocator, CellView, Heap};
+use crate::builtins::BUILTINS;
 use crate::ast::*;
 use crate::environment::Environment;
 use crate::lexer::TType;
@@ -38,14 +39,19 @@ impl<'l> Executor<'l> {
         let small_ints = (SMALL_INT_MIN..=SMALL_INT_MAX)
             .map(|n| heap.intern(Object::Number(n)))
             .collect();
-        Self {
+        let mut executor = Self {
             global_env: env,
             heap,
             parser,
             null,
             booleans,
             small_ints,
+        };
+        for builtin in BUILTINS {
+            let cell = executor.heap.intern(Object::Builtin(builtin));
+            executor.global_env.add(builtin.name, cell);
         }
+        executor
     }
 
     // Evaluates both operands, keeping the left rooted while the right is
@@ -57,6 +63,32 @@ impl<'l> Executor<'l> {
         let right = self.visit_expr(&op.right);
         self.heap.temp_push(right);
         (mark, left, right)  
+    }
+
+    pub fn read_value(&self, view: CellView<Object>) -> &Object {
+        self.read(view)
+    }
+
+    pub fn null_value(&self) -> CellView<Object> {
+        self.null()
+    }
+
+    pub fn number_value(&mut self, value: i32) -> CellView<Object> {
+        self.number(value)
+    }
+
+    pub fn display_object(&self, view: CellView<Object>) -> Option<String> {
+        self.resolve_display_object(&view)
+    }
+
+    pub fn builtin_type_error(&mut self, msg: &str, at: &NodeParseInfo) -> CellView<Object> {
+        self.emit_type_error(
+            msg.to_string(),
+            NodeParseInfo {
+                lineno: at.lineno,
+                token: at.token.clone(),
+            },
+        )
     }
 
     fn read(&self, view: CellView<Object>) -> &Object {
@@ -534,20 +566,13 @@ impl<'l> Executor<'l> {
             }
         };
 
-        // handle built-ins
-        if let Node::Ident(id) = callee_node {
-            if self.is_builtin_function(id.value.as_str()) {
-                return self.visit_builtin_function(id, func_call);
-            }
-        }
-
         let mark = self.heap.temp_mark();
         let callee_cell = self.visit_expr(callee_node);
         self.heap.temp_push(callee_cell);
 
         // Decide before constructing an error, so the heap borrow is over by then.
         let callee = self.read(callee_cell);
-        let is_callable = matches!(callee, Object::Function(_));
+        let is_callable = matches!(callee, Object::Function(_) | Object::Builtin(_));
         let is_error = matches!(callee, Object::Error(_));
         if is_error {
             return callee_cell;
@@ -567,6 +592,34 @@ impl<'l> Executor<'l> {
             let cell = self.visit_expr(arg);
             self.heap.temp_push(cell);
             arg_cells.push(cell);
+        }
+
+        // Builtins run in the caller's scope: there are no parameters to bind.
+        if let Object::Builtin(builtin) = self.read(callee_cell) {
+            let builtin = *builtin;
+            let at = NodeParseInfo {
+                lineno: func_call.lineno,
+                token: func_call.token.clone(),
+            };
+            let result = if builtin.arity.accepts(arg_cells.len()) {
+                (builtin.call)(self, &arg_cells, &at)
+            } else {
+                self.emit_type_error(
+                    format!(
+                        "{} expects {} argument(s), got {}",
+                        builtin.name,
+                        builtin.arity.describe(),
+                        arg_cells.len()
+                    ),
+                    NodeParseInfo {
+                        lineno: func_call.lineno,
+                        token: func_call.token.clone(),
+                    },
+                )
+            };
+            self.heap.temp_push(result);
+            self.heap.temp_release(mark);
+            return result;
         }
 
         // Push scope AFTER evaluating arguments (arguments are evaluated in caller's scope)
@@ -651,31 +704,6 @@ impl<'l> Executor<'l> {
                     },
                 );
             }
-        }
-    }
-
-    fn is_builtin_function(&self, name: &str) -> bool {
-        match name {
-            "print" => true,
-            _ => false,
-        }
-    }
-
-    fn visit_builtin_function(&mut self, id: &Ident, func_call: &Call) -> CellView<Object> {
-        match id.value.as_str() {
-            "print" => {
-                let mut printed: Vec<String> = Vec::with_capacity(func_call.args.len());
-                for arg in &func_call.args {
-                    let c = self.visit_expr(arg);
-                    match self.resolve_display_object(&c) {
-                        Some(s) => printed.push(s),
-                        None => return c,
-                    }
-                }
-                println!("{}", printed.join(" "));
-                return self.null();
-            }
-            _ => panic!("Error: unknown builtin function call {}", id.value),
         }
     }
 

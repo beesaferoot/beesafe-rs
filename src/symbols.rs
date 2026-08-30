@@ -22,6 +22,7 @@ pub enum Object {
     Range(RangeObj),
     Iterator(IteratorObj),
     Function(FunctionType),
+    Builtin(&'static crate::builtins::Builtin),
     Return(CellView<Object>),
 }
 
@@ -233,7 +234,8 @@ impl Markable<Object> for Object {
             | Object::String(_)
             | Object::Float(_)
             | Object::Range(_)
-            | Object::Function(_) => Vec::new(),
+            | Object::Function(_)
+            | Object::Builtin(_) => Vec::new(),
         }
     }
 }

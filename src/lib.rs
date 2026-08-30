@@ -1,5 +1,6 @@
 pub mod allocator;
 pub mod ast;
+pub mod builtins;
 pub mod environment;
 pub mod executor;
 pub mod interpreter;
