@@ -502,3 +502,21 @@ fn verify_node_type(node: &Node, expected_type: &NodeType) {
         _ => panic!("Unexpected node type"),
     }
 }
+
+#[test]
+fn an_unclosed_call_names_the_opening_paren() {
+    let input = "print(f([1, 2])\n";
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
+    parser.parse_program();
+    assert!(parser.has_errors());
+}
+
+#[test]
+fn an_unclosed_array_names_the_opening_bracket() {
+    let input = "[1, 2\n";
+    let mut lexer = lexer::Lexer::new(input);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
+    parser.parse_program();
+    assert!(parser.has_errors());
+}

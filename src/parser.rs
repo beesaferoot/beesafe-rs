@@ -50,6 +50,21 @@ impl<'a> Parser<'a> {
         self.errors.is_empty() == false
     }
 
+    /// Points at the opening delimiter, which is where the reader has to go, not
+    /// at the position where the parser noticed.
+    fn unclosed(&self, open: &Token, close: char, found: &Token) -> Node {
+        Node::Error(Error::new(
+            self.source(),
+            (open.offset as usize, open.lexeme.len()).into(),
+            ParseError::InvalidSyntax(format!(
+                "unclosed '{}', expected '{}' before {}",
+                open.lexeme,
+                close,
+                describe(found)
+            )),
+        ))
+    }
+
     pub fn show_errors(&self, sources: &SourceMap) {
         for err in self.errors.clone().into_iter() {
             let text = sources.text(err.src).to_string();
@@ -162,7 +177,7 @@ impl<'a> Parser<'a> {
                         span,
                         ParseError::InvalidSyntax(format!(
                             "Expected ')' after expression, got {}",
-                            curr.lexeme
+                            describe(curr)
                         )),
                     ));
                 } else {
@@ -195,7 +210,7 @@ impl<'a> Parser<'a> {
                 span,
                 ParseError::InvalidSyntax(format!(
                     "Expected '(' after 'define' keyword in a function expression, got {}",
-                    define_token.lexeme
+                    describe(&define_token)
                 )),
             );
             self.errors.push(err.clone());
@@ -238,7 +253,7 @@ impl<'a> Parser<'a> {
                 span,
                 ParseError::InvalidSyntax(format!(
                     "Expected '[' after object, got {}",
-                    current_token.lexeme
+                    describe(&current_token)
                 )),
             );
             return Node::Error(err);
@@ -257,7 +272,7 @@ impl<'a> Parser<'a> {
                 span,
                 ParseError::InvalidSyntax(format!(
                     "Expected ']' after index, got {}",
-                    current_token.lexeme
+                    describe(&current_token)
                 )),
             );
             return Node::Error(err);
@@ -400,7 +415,7 @@ impl<'a> Parser<'a> {
                 span,
                 ParseError::MissingIdent(format!(
                     "Expected identifier after 'init' keyword, got {}",
-                    current_token.lexeme
+                    describe(current_token)
                 )),
             );
             return Node::Error(err);
@@ -418,7 +433,7 @@ impl<'a> Parser<'a> {
                 span,
                 ParseError::InvalidSyntax(format!(
                     "Expected '=' after identifier, got {}",
-                    current_token.lexeme
+                    describe(current_token)
                 )),
             );
             return Node::Error(err);
@@ -452,7 +467,7 @@ impl<'a> Parser<'a> {
                     span,
                     ParseError::MissingIdent(format!(
                         "Expected identifier in declare statement, got {}",
-                        current_token.lexeme
+                        describe(current_token)
                     )),
                 );
                 return Node::Error(err);
@@ -476,7 +491,7 @@ impl<'a> Parser<'a> {
                         span,
                         ParseError::InvalidSyntax(format!(
                             "Expected ',' or newline in declare statement, got {}",
-                            current_token.lexeme
+                            describe(current_token)
                         )),
                     );
                     return Node::Error(err);
@@ -663,12 +678,13 @@ impl<'a> Parser<'a> {
                     span,
                     ParseError::InvalidSyntax(format!(
                         "Expected '(' after function name, got {}",
-                        current_token.lexeme
+                        describe(current_token)
                     )),
                 );
                 return Node::Error(err);
             }
         }
+        let open_paren = self.current_token.clone().unwrap();
         self.consume_next_token();
 
         let mut args = Vec::new();
@@ -680,6 +696,9 @@ impl<'a> Parser<'a> {
             if current_token.ttype == TType::Rparen {
                 break;
             }
+            if matches!(current_token.ttype, TType::Eob | TType::Newline) {
+                return self.unclosed(&open_paren, ')', current_token);
+            }
 
             if !args.is_empty() {
                 if current_token.ttype != TType::Comma {
@@ -689,7 +708,7 @@ impl<'a> Parser<'a> {
                         span,
                         ParseError::InvalidSyntax(format!(
                             "Expected ',' between arguments, got {}",
-                            current_token.lexeme
+                            describe(current_token)
                         )),
                     );
                     return Node::Error(err);
@@ -729,7 +748,7 @@ impl<'a> Parser<'a> {
                 span,
                 ParseError::InvalidSyntax(format!(
                     "Expected '(' after function name, got {}",
-                    current_token.lexeme
+                    describe(&current_token)
                 )),
             );
             return Node::Error(err);
@@ -754,7 +773,7 @@ impl<'a> Parser<'a> {
                         span,
                         ParseError::InvalidSyntax(format!(
                             "Expected ',' between parameters, got {}",
-                            current_token.lexeme
+                            describe(&current_token)
                         )),
                     );
                     return Node::Error(err);
@@ -770,7 +789,7 @@ impl<'a> Parser<'a> {
                     span,
                     ParseError::MissingIdent(format!(
                         "Expected parameter name, got {}",
-                        current_token.lexeme
+                        describe(&current_token)
                     )),
                 );
                 return Node::Error(err);
@@ -797,7 +816,7 @@ impl<'a> Parser<'a> {
                     span,
                     ParseError::InvalidSyntax(format!(
                         "Expected '{{' for function body, got {}",
-                        current_token.lexeme
+                        describe(&current_token)
                     )),
                 );
                 return Node::Error(err);
@@ -816,6 +835,7 @@ impl<'a> Parser<'a> {
         let lineno = self.lexer.lineno();
         let mut elements = Vec::new();
 
+        let open_bracket = self.current_token.clone().unwrap();
         self.consume_next_token();
 
         loop {
@@ -823,6 +843,9 @@ impl<'a> Parser<'a> {
 
             if current_token.ttype == TType::Rbracket {
                 break;
+            }
+            if matches!(current_token.ttype, TType::Eob | TType::Newline) {
+                return self.unclosed(&open_bracket, ']', current_token);
             }
 
             if !elements.is_empty() {
@@ -833,7 +856,7 @@ impl<'a> Parser<'a> {
                         span,
                         ParseError::InvalidSyntax(format!(
                             "Expected ',' between array elements, got {}",
-                            current_token.lexeme
+                            describe(current_token)
                         )),
                     );
                     return Node::Error(err);
@@ -866,7 +889,7 @@ impl<'a> Parser<'a> {
                 span,
                 ParseError::MissingIdent(format!(
                     "Expected function name after 'define', got {}",
-                    current_token.lexeme
+                    describe(&current_token)
                 )),
             );
             return Node::Error(err);
@@ -913,7 +936,7 @@ impl<'a> Parser<'a> {
                     span,
                     ParseError::InvalidSyntax(format!(
                         "Expected '{{' after while condition, got {}",
-                        current_token.lexeme
+                        describe(&current_token)
                     )),
                 );
                 return Node::Error(err);
@@ -1053,5 +1076,15 @@ impl<'a> Parser<'a> {
             ttype = current_token.ttype;
         }
         program
+    }
+}
+
+/// Names a token for a diagnostic. End of input and end of line have no
+/// printable lexeme, so they are described rather than quoted.
+fn describe(token: &Token) -> String {
+    match token.ttype {
+        TType::Eob => "end of input".to_string(),
+        TType::Newline => "end of line".to_string(),
+        _ => format!("'{}'", token.lexeme),
     }
 }
