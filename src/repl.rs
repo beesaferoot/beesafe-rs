@@ -283,6 +283,15 @@ mod tests {
     }
 
     #[test]
+    fn a_pasted_block_survives_highlighting() {
+        // A bracketed paste arrives as one buffer with embedded newlines.
+        let renderer = ReplRenderer::new();
+        let block = "define f(n) {\n    if (n > 0) { // guard\n        return n\n    }\n    return 0\n}";
+        assert_eq!(strip_ansi(&renderer.highlight(block, 0)), block);
+        assert!(matches!(input_state(block), InputState::Complete));
+    }
+
+    #[test]
     fn keywords_strings_and_comments_are_coloured() {
         let renderer = ReplRenderer::new();
         let painted = renderer.highlight("init x = \"hi\" // note", 0);
