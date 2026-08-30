@@ -219,6 +219,20 @@ impl IteratorObj {
     }
 }
 
+/// Renders a value for `print`. `None` for an error, which the caller surfaces
+/// as a diagnostic rather than as text.
+pub fn display(heap: &Heap<Object>, view: CellView<Object>) -> Option<String> {
+    match heap.read_cell(view)? {
+        Object::Null => Some("null".to_string()),
+        Object::Bool(value) => Some(format!("{}", value)),
+        Object::Number(value) => Some(format!("{}", value)),
+        Object::String(text) => Some(text.clone()),
+        Object::Error(_) => None,
+        Object::Return(inner) => display(heap, *inner),
+        other => Some(format!("{:?}", other)),
+    }
+}
+
 impl Markable<Object> for Object {
     // No wildcard arm: adding a variant that holds a Cell must not silently
     // default to "has no references", which would sweep it while live.

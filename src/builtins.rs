@@ -6,9 +6,8 @@
     definition of the same name shadows it.
 */
 
-use crate::allocator::CellView;
-use crate::executor::{Executor, NodeParseInfo};
-use crate::symbols::Object;
+use crate::allocator::{Allocator, CellView, Heap};
+use crate::symbols::{display, Object};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Arity {
@@ -39,7 +38,7 @@ impl Arity {
 pub struct Builtin {
     pub name: &'static str,
     pub arity: Arity,
-    pub call: fn(&mut Executor, &[CellView<Object>], &NodeParseInfo) -> CellView<Object>,
+    pub call: fn(&mut Heap<Object>, &[CellView<Object>]) -> Result<Object, String>,
 }
 
 pub const BUILTINS: &[Builtin] = &[
@@ -55,22 +54,22 @@ pub const BUILTINS: &[Builtin] = &[
     },
 ];
 
-fn print(exec: &mut Executor, args: &[CellView<Object>], _at: &NodeParseInfo) -> CellView<Object> {
+fn print(heap: &mut Heap<Object>, args: &[CellView<Object>]) -> Result<Object, String> {
     let mut parts: Vec<String> = Vec::with_capacity(args.len());
     for arg in args {
-        match exec.display_object(*arg) {
+        match display(heap, *arg) {
             Some(text) => parts.push(text),
-            // An error argument is returned rather than printed, so it reaches
-            // the diagnostics instead of being rendered as a value.
-            None => return *arg,
+            // An error argument is handed back rather than printed, so it
+            // reaches the diagnostics instead of being rendered as text.
+            None => return Ok(heap.read_cell(*arg).cloned().unwrap_or(Object::Null)),
         }
     }
     println!("{}", parts.join(" "));
-    exec.null_value()
+    Ok(Object::Null)
 }
 
-fn len(exec: &mut Executor, args: &[CellView<Object>], at: &NodeParseInfo) -> CellView<Object> {
-    let length = match exec.read_value(args[0]) {
+fn len(heap: &mut Heap<Object>, args: &[CellView<Object>]) -> Result<Object, String> {
+    let length = match heap.read_cell(args[0]).ok_or("argument has been collected")? {
         // Characters rather than bytes: source is UTF-8, so len("café") is 4.
         Object::String(text) => Some(text.chars().count() as i32),
         Object::Array(elements) => Some(elements.len() as i32),
@@ -87,8 +86,7 @@ fn len(exec: &mut Executor, args: &[CellView<Object>], at: &NodeParseInfo) -> Ce
         | Object::Return(_) => None,
     };
 
-    match length {
-        Some(value) => exec.number_value(value),
-        None => exec.builtin_type_error("len expects a string, array or range", at),
-    }
+    length
+        .map(Object::Number)
+        .ok_or_else(|| "len expects a string, array or range".to_string())
 }

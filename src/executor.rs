@@ -65,36 +65,17 @@ impl<'l> Executor<'l> {
         (mark, left, right)  
     }
 
-    pub fn read_value(&self, view: CellView<Object>) -> &Object {
-        self.read(view)
-    }
-
-    pub fn null_value(&self) -> CellView<Object> {
-        self.null()
-    }
-
-    pub fn number_value(&mut self, value: i32) -> CellView<Object> {
-        self.number(value)
-    }
-
-    pub fn display_object(&self, view: CellView<Object>) -> Option<String> {
-        self.resolve_display_object(&view)
-    }
-
-    pub fn builtin_type_error(&mut self, msg: &str, at: &NodeParseInfo) -> CellView<Object> {
-        self.emit_type_error(
-            msg.to_string(),
-            NodeParseInfo {
-                lineno: at.lineno,
-                token: at.token.clone(),
-            },
-        )
-    }
-
     fn read(&self, view: CellView<Object>) -> &Object {
         self.heap
             .read_cell(view)
             .expect("read of a cell that has been freed")
+    }
+
+    fn value(&mut self, object: Object) -> CellView<Object> {
+        match self.constant(&object) {
+            Some(interned) => interned,
+            None => self.heap.allocate_cell(object),
+        }
     }
 
     fn null(&self) -> CellView<Object> {
@@ -515,10 +496,7 @@ impl<'l> Executor<'l> {
         };
 
         let out = match folded {
-            Some(value) => match self.constant(&value) {
-                Some(interned) => interned,
-                None => self.heap.allocate_cell(value),
-            },
+            Some(value) => self.value(value),
             None => self.emit_type_error(
                 format!("cannot apply '{}' to this type", op.token.lexeme),
                 NodeParseInfo {
@@ -601,21 +579,19 @@ impl<'l> Executor<'l> {
                 lineno: func_call.lineno,
                 token: func_call.token.clone(),
             };
-            let result = if builtin.arity.accepts(arg_cells.len()) {
-                (builtin.call)(self, &arg_cells, &at)
+            let outcome = if builtin.arity.accepts(arg_cells.len()) {
+                (builtin.call)(&mut self.heap, &arg_cells)
             } else {
-                self.emit_type_error(
-                    format!(
-                        "{} expects {} argument(s), got {}",
-                        builtin.name,
-                        builtin.arity.describe(),
-                        arg_cells.len()
-                    ),
-                    NodeParseInfo {
-                        lineno: func_call.lineno,
-                        token: func_call.token.clone(),
-                    },
-                )
+                Err(format!(
+                    "{} expects {} argument(s), got {}",
+                    builtin.name,
+                    builtin.arity.describe(),
+                    arg_cells.len()
+                ))
+            };
+            let result = match outcome {
+                Ok(object) => self.value(object),
+                Err(message) => self.emit_type_error(message, at),
             };
             self.heap.temp_push(result);
             self.heap.temp_release(mark);
@@ -704,18 +680,6 @@ impl<'l> Executor<'l> {
                     },
                 );
             }
-        }
-    }
-
-    fn resolve_display_object(&self, obj: &CellView<Object>) -> Option<String> {
-        match self.read(*obj) {
-            Object::Null => Some("null".to_string()),
-            Object::Bool(b) => Some(format!("{}", b)),
-            Object::Number(n) => Some(format!("{}", n)),
-            Object::String(s) => Some(s.clone()),
-            Object::Error(_) => None,
-            Object::Return(ret) => self.resolve_display_object(ret),
-            other => Some(format!("{:?}", other)),
         }
     }
 
