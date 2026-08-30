@@ -2,7 +2,8 @@ use beesafe::interpreter::Interpreter;
 use beesafe::source::SourceMap;
 use beesafe::symbols::Object;
 use rustyline::error::ReadlineError;
-use rustyline::DefaultEditor;
+use beesafe::repl::{input_state, InputState, ReplRenderer};
+use rustyline::Editor;
 use std::env;
 use std::path::PathBuf;
 
@@ -86,22 +87,33 @@ fn main() {
 }
 
 fn repl(existing: Option<Interpreter>, debug: bool) {
-    let mut rl = DefaultEditor::new().unwrap();
+    let mut rl = Editor::new().unwrap();
+    rl.set_helper(Some(ReplRenderer::new()));
+
     let mut interp = existing.unwrap_or_else(Interpreter::new);
     let mut buffer = String::new();
+
     loop {
+        if let Some(renderer) = rl.helper_mut() {
+            renderer.set_names(interp.global_names());
+        }
         let prompt = if buffer.is_empty() { ">> " } else { ".. " };
-        let readline = rl.readline(prompt);
-        match readline {
+        match rl.readline(prompt) {
             Ok(line) => {
-                // Accumulate lines until the input looks complete
                 buffer.push_str(&line);
                 buffer.push('\n');
 
-                if !is_input_complete(&buffer) {
-                    continue;
+                match input_state(&buffer) {
+                    InputState::Incomplete => continue,
+                    InputState::Invalid(reason) => {
+                        eprintln!("{}", reason);
+                        buffer.clear();
+                        continue;
+                    }
+                    InputState::Complete => (),
                 }
 
+                let _ = rl.add_history_entry(buffer.trim_end());
                 let outcome = interp.run_str(&buffer);
                 if debug {
                     print_results(&outcome.values, interp.sources());
@@ -113,12 +125,11 @@ fn repl(existing: Option<Interpreter>, debug: bool) {
                 }
                 buffer.clear();
             }
+            // Ctrl-C abandons whatever is half-typed; Ctrl-D ends the session.
             Err(ReadlineError::Interrupted) => {
-                break;
+                buffer.clear();
             }
-            Err(ReadlineError::Eof) => {
-                break;
-            }
+            Err(ReadlineError::Eof) => break,
             Err(err) => {
                 println!("Error: {:?}", err);
                 break;
@@ -159,56 +170,6 @@ fn print_version() {
     println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
 }
 
-fn is_input_complete(src: &str) -> bool {
-    let mut paren: i32 = 0;
-    let mut brace: i32 = 0;
-    let mut bracket: i32 = 0;
-    let mut in_single = false;
-    let mut in_double = false;
-
-    let mut chars = src.chars().peekable();
-    while let Some(ch) = chars.next() {
-        // skip line comments
-        if ch == '/' {
-            if let Some('/') = chars.peek() {
-                // consume until newline or end
-                while let Some(c) = chars.next() {
-                    if c == '\n' {
-                        break;
-                    }
-                }
-                continue;
-            }
-        }
-
-        if in_single {
-            if ch == '\'' {
-                in_single = false;
-            }
-            continue;
-        }
-        if in_double {
-            if ch == '"' {
-                in_double = false;
-            }
-            continue;
-        }
-
-        match ch {
-            '\'' => in_single = true,
-            '"' => in_double = true,
-            '(' => paren += 1,
-            ')' => paren -= 1,
-            '{' => brace += 1,
-            '}' => brace -= 1,
-            '[' => bracket += 1,
-            ']' => bracket -= 1,
-            _ => (),
-        }
-    }
-
-    paren <= 0 && brace <= 0 && bracket <= 0 && !in_single && !in_double
-}
 
 fn is_valid_script_path(path: &PathBuf) -> bool {
     match path.extension().and_then(|s| s.to_str()) {
