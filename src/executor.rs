@@ -1,72 +1,35 @@
-use crate::allocator::{Allocator, CellView, Heap};
-use crate::builtins::BUILTINS;
+use crate::allocator::{Allocator, CellView};
 use crate::ast::*;
-use crate::environment::Environment;
 use crate::lexer::TType;
 use crate::lexer::Token;
-use crate::parser::Parser;
+use crate::runtime::Runtime;
+use crate::source::SourceId;
 use crate::symbols::*;
 use miette::SourceSpan;
 
-// Integers in this range are interned rather than allocated.
-const SMALL_INT_MIN: i32 = -128;
-const SMALL_INT_MAX: i32 = 1024;
-
 pub struct Executor<'l> {
-    global_env: &'l mut Environment,
-    heap: Heap<Object>,
-    parser: &'l Parser<'l>,
-    null: CellView<Object>,
-    booleans: [CellView<Object>; 2],
-    small_ints: Vec<CellView<Object>>,
+    runtime: &'l mut Runtime,
+    source: SourceId,
 }
 
 impl<'l> Executor<'l> {
-    pub fn new(env: &'l mut Environment, parser: &'l Parser<'l>) -> Self {
-        let mut heap = Heap::new();
-        // BEESAFE_GC_THRESHOLD overrides the collection threshold. Program output
-        // must not depend on it.
-        let threshold = std::env::var("BEESAFE_GC_THRESHOLD")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(1000);
-        heap.set_gc_threshold(threshold);
-        let null = heap.intern(Object::Null);
-        let booleans = [
-            heap.intern(Object::Bool(false)),
-            heap.intern(Object::Bool(true)),
-        ];
-        let small_ints = (SMALL_INT_MIN..=SMALL_INT_MAX)
-            .map(|n| heap.intern(Object::Number(n)))
-            .collect();
-        let mut executor = Self {
-            global_env: env,
-            heap,
-            parser,
-            null,
-            booleans,
-            small_ints,
-        };
-        for builtin in BUILTINS {
-            let cell = executor.heap.intern(Object::Builtin(builtin));
-            executor.global_env.add(builtin.name, cell);
-        }
-        executor
+    pub fn new(runtime: &'l mut Runtime, source: SourceId) -> Self {
+        Self { runtime, source }
     }
 
     // Evaluates both operands, keeping the left rooted while the right is
     // evaluated. Returns the shadow-stack mark for the caller to release.
     fn eval_operands(&mut self, op: &BinaryOp) -> (usize, CellView<Object>, CellView<Object>) {
-        let mark = self.heap.temp_mark();
+        let mark = self.runtime.heap.temp_mark();
         let left = self.visit_expr(&op.left);
-        self.heap.temp_push(left);
+        self.runtime.heap.temp_push(left);
         let right = self.visit_expr(&op.right);
-        self.heap.temp_push(right);
+        self.runtime.heap.temp_push(right);
         (mark, left, right)  
     }
 
     fn read(&self, view: CellView<Object>) -> &Object {
-        self.heap
+        self.runtime.heap
             .read_cell(view)
             .expect("read of a cell that has been freed")
     }
@@ -74,57 +37,51 @@ impl<'l> Executor<'l> {
     fn value(&mut self, object: Object) -> CellView<Object> {
         match self.constant(&object) {
             Some(interned) => interned,
-            None => self.heap.allocate_cell(object),
+            None => self.runtime.heap.allocate_cell(object),
         }
     }
 
     fn null(&self) -> CellView<Object> {
-        self.null
+        self.runtime.constants.null()
     }
 
     fn boolean(&self, value: bool) -> CellView<Object> {
-        self.booleans[value as usize]
+        self.runtime.constants.boolean(value)
     }
 
     fn number(&mut self, value: i32) -> CellView<Object> {
-        if (SMALL_INT_MIN..=SMALL_INT_MAX).contains(&value) {
-            return self.small_ints[(value - SMALL_INT_MIN) as usize];
+        match self.runtime.constants.small_int(value) {
+            Some(interned) => interned,
+            None => self.runtime.heap.allocate_cell(Object::Number(value)),
         }
-        self.heap.allocate_cell(Object::Number(value))
     }
 
-    // Returns the interned cell for a constant, or None for a value that must be
-    // copied. Sharing is safe because cells are never mutated in place.
     fn constant(&mut self, obj: &Object) -> Option<CellView<Object>> {
-        match obj {
-            Object::Null => Some(self.null()),
-            Object::Bool(b) => Some(self.boolean(*b)),
-            Object::Number(n) => {
-                if (SMALL_INT_MIN..=SMALL_INT_MAX).contains(n) {
-                    Some(self.number(*n))
-                } else {
-                    None
-                }
-            }
-            _ => None,
+        self.runtime.constants.of(obj)
+    }
+
+    /// Drops the roots `visit_program` took on each statement result.
+    pub fn release_results(&mut self, results: &[CellView<Object>]) {
+        for view in results {
+            self.runtime.heap.remove_root(view);
         }
     }
 
     pub fn read_view(&self, view: CellView<Object>) -> Option<&Object> {
-        self.heap.read_cell(view)
+        self.runtime.heap.read_cell(view)
     }
 
     pub fn visit_program(&mut self, program: &Program) -> Vec<CellView<Object>> {
         let mut result = Vec::new();
         for stmt in &program.statements {
-            let mark = self.heap.temp_mark();
+            let mark = self.runtime.heap.temp_mark();
             let cell = self.visit_expr(stmt);
-            self.heap.add_root(cell);
+            self.runtime.heap.add_root(cell);
             result.push(cell);
             // Bounds any temporary root leaked by an early return to one statement.
-            self.heap.temp_release(mark);
+            self.runtime.heap.temp_release(mark);
         }
-        self.heap.force_gc();
+        self.runtime.heap.force_gc();
         result
     }
 
@@ -154,15 +111,15 @@ impl<'l> Executor<'l> {
             Node::Boolean(v) => self.boolean(v.value),
             Node::Null(_) => self.null(),
             Node::Array(arr) => {
-                let mark = self.heap.temp_mark();
+                let mark = self.runtime.heap.temp_mark();
                 let mut elements = Vec::new();
                 for element in &arr.elements {
                     let obj = self.visit_expr(element);
-                    self.heap.temp_push(obj);
+                    self.runtime.heap.temp_push(obj);
                     elements.push(obj);
                 }
-                let array = self.heap.allocate_cell(Object::Array(elements));
-                self.heap.temp_release(mark);
+                let array = self.runtime.heap.allocate_cell(Object::Array(elements));
+                self.runtime.heap.temp_release(mark);
                 array
             }
             Node::Range(range) => {
@@ -200,10 +157,10 @@ impl<'l> Executor<'l> {
                         )
                     }
                 };
-                self.heap
+                self.runtime.heap
                     .allocate_cell(Object::Range(crate::symbols::RangeObj { start, end }))
             }
-            Node::StringLiteral(s) => self.heap.allocate_cell(Object::String(s.literal.clone())),
+            Node::StringLiteral(s) => self.runtime.heap.allocate_cell(Object::String(s.literal.clone())),
             Node::Block(block) => {
                 return self.visit_block(&block);
             }
@@ -221,11 +178,11 @@ impl<'l> Executor<'l> {
             Node::UniaryOp(op) => self.visit_unary(op),
             Node::Index(index) => self.visit_index(index),
             Node::Return(ret) => {
-                let mark = self.heap.temp_mark();
+                let mark = self.runtime.heap.temp_mark();
                 let value = self.visit_expr(&ret.value);
-                self.heap.temp_push(value);
-                let wrapped = self.heap.allocate_cell(Object::Return(value));
-                self.heap.temp_release(mark);
+                self.runtime.heap.temp_push(value);
+                let wrapped = self.runtime.heap.allocate_cell(Object::Return(value));
+                self.runtime.heap.temp_release(mark);
                 wrapped
             }
             // A node the parser rejected. Carry its diagnostic through as a value
@@ -248,11 +205,11 @@ impl<'l> Executor<'l> {
         for stmt in &block.statements {
             match stmt.as_ref() {
                 Node::Return(ret) => {
-                    let mark = self.heap.temp_mark();
+                    let mark = self.runtime.heap.temp_mark();
                     let val = self.visit_expr(&ret.value);
-                    self.heap.temp_push(val);
-                    let wrapped = self.heap.allocate_cell(Object::Return(val));
-                    self.heap.temp_release(mark);
+                    self.runtime.heap.temp_push(val);
+                    let wrapped = self.runtime.heap.allocate_cell(Object::Return(val));
+                    self.runtime.heap.temp_release(mark);
                     return wrapped;
                 }
                 _ => {
@@ -268,10 +225,10 @@ impl<'l> Executor<'l> {
     }
 
     fn visit_for(&mut self, forstmt: &ForStmt) -> CellView<Object> {
-        let mark = self.heap.temp_mark();
+        let mark = self.runtime.heap.temp_mark();
         let iter_cell = self.visit_expr(&forstmt.iter);
-        self.heap.temp_push(iter_cell);
-        let iterator = self.read(iter_cell).get_iterator(&self.heap);
+        self.runtime.heap.temp_push(iter_cell);
+        let iterator = self.read(iter_cell).get_iterator(&self.runtime.heap);
         let mut iterator = match iterator {
             Some(it) => it,
             None => {
@@ -292,23 +249,23 @@ impl<'l> Executor<'l> {
 
         while iterator.has_next() {
             if let Some(item) = iterator.next() {
-                let cell = self.heap.allocate_cell(item);
+                let cell = self.runtime.heap.allocate_cell(item);
                 if ident_name.len() > 0 {
-                    if let Some(prev) = self.global_env.add(&ident_name, cell) {
-                        self.heap.remove_root(&prev);
+                    if let Some(prev) = self.runtime.globals.add(&ident_name, cell) {
+                        self.runtime.heap.remove_root(&prev);
                     }
-                    self.heap.add_root(cell);
+                    self.runtime.heap.add_root(cell);
                 }
                 let body = self.visit_expr(&forstmt.block);
                 if matches!(self.read(body), Object::Return(_) | Object::Error(_)) {
-                    self.heap.temp_release(mark);
+                    self.runtime.heap.temp_release(mark);
                     return body;
                 }
             } else {
                 break;
             }
         }
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         self.null()
     }
 
@@ -316,10 +273,10 @@ impl<'l> Executor<'l> {
         for ident in &decl.idents {
             if let Node::Ident(id) = ident {
                 let cell = self.null();
-                if let Some(prev) = self.global_env.add(&id.value, cell) {
-                    self.heap.remove_root(&prev);
+                if let Some(prev) = self.runtime.globals.add(&id.value, cell) {
+                    self.runtime.heap.remove_root(&prev);
                 }
-                self.heap.add_root(cell);
+                self.runtime.heap.add_root(cell);
             }
         }
         self.null()
@@ -333,21 +290,21 @@ impl<'l> Executor<'l> {
         };
 
         if name.len() > 0 {
-            if let Some(prev) = self.global_env.add(&name, value_cell.clone()) {
-                self.heap.remove_root(&prev);
+            if let Some(prev) = self.runtime.globals.add(&name, value_cell.clone()) {
+                self.runtime.heap.remove_root(&prev);
             }
-            self.heap.add_root(value_cell.clone());
+            self.runtime.heap.add_root(value_cell.clone());
         }
         value_cell
     }
 
     fn visit_ident(&mut self, id: &Ident) -> CellView<Object> {
-        match self.global_env.get(&id.value) {
+        match self.runtime.globals.get(&id.value) {
             Some(cell) => {
                 let obj = self.read(cell).clone();
                 match self.constant(&obj) {
                     Some(interned) => interned,
-                    None => self.heap.allocate_cell(obj),
+                    None => self.runtime.heap.allocate_cell(obj),
                 }
             }
             None => self.emit_undefined_error(
@@ -366,9 +323,9 @@ impl<'l> Executor<'l> {
             _ => unreachable!(),
         };
 
-        let mark = self.heap.temp_mark();
+        let mark = self.runtime.heap.temp_mark();
         let value_cell = self.visit_expr(&assign.right);
-        self.heap.temp_push(value_cell);
+        self.runtime.heap.temp_push(value_cell);
 
         let out = match assign.left.as_ref() {
             Node::Ident(id) => self.assign_to_name(id, value_cell),
@@ -381,12 +338,12 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
     fn assign_to_name(&mut self, id: &Ident, value_cell: CellView<Object>) -> CellView<Object> {
-        if self.global_env.get(&id.value).is_none() {
+        if self.runtime.globals.get(&id.value).is_none() {
             return self.emit_undefined_error(
                 format!("undefined identifier '{}'", id.value),
                 NodeParseInfo {
@@ -395,9 +352,9 @@ impl<'l> Executor<'l> {
                 },
             );
         }
-        self.heap.add_root(value_cell);
-        if let Some(prev) = self.global_env.assign(&id.value, value_cell) {
-            self.heap.remove_root(&prev);
+        self.runtime.heap.add_root(value_cell);
+        if let Some(prev) = self.runtime.globals.assign(&id.value, value_cell) {
+            self.runtime.heap.remove_root(&prev);
         }
         self.null()
     }
@@ -409,23 +366,23 @@ impl<'l> Executor<'l> {
         };
         // The array owns the element view from here, so root it before the old
         // one is dropped.
-        self.heap.add_root(value_cell);
-        let previous = match self.heap.read_mut_cell(target) {
+        self.runtime.heap.add_root(value_cell);
+        let previous = match self.runtime.heap.read_mut_cell(target) {
             Some(Object::Array(elements)) => std::mem::replace(&mut elements[offset], value_cell),
             _ => unreachable!("resolve_index already checked the target is an array"),
         };
-        self.heap.remove_root(&previous);
+        self.runtime.heap.remove_root(&previous);
         self.null()
     }
 
     // Resolves an index expression to the position it names, so both reading and
     // assigning can share the bounds checking.
     fn resolve_index(&mut self, index: &Index) -> Result<(CellView<Object>, usize), CellView<Object>> {
-        let mark = self.heap.temp_mark();
+        let mark = self.runtime.heap.temp_mark();
         // Resolve a named target to its binding rather than evaluating it:
         // visit_ident hands back a copy, and writing to a copy is a silent no-op.
         let target = match index.object.as_ref() {
-            Node::Ident(id) => match self.global_env.get(&id.value) {
+            Node::Ident(id) => match self.runtime.globals.get(&id.value) {
                 Some(cell) => cell,
                 None => {
                     return Err(self.emit_undefined_error(
@@ -439,9 +396,9 @@ impl<'l> Executor<'l> {
             },
             other => self.visit_expr(other),
         };
-        self.heap.temp_push(target);
+        self.runtime.heap.temp_push(target);
         let position = self.visit_expr(&index.index);
-        self.heap.temp_push(position);
+        self.runtime.heap.temp_push(position);
 
         let info = || NodeParseInfo {
             lineno: index.lineno,
@@ -451,19 +408,19 @@ impl<'l> Executor<'l> {
         let offset = match self.read(position) {
             Object::Number(value) => *value,
             _ => {
-                self.heap.temp_release(mark);
+                self.runtime.heap.temp_release(mark);
                 return Err(self.emit_type_error("index must be a number".to_string(), info()));
             }
         };
         let length = match self.read(target) {
             Object::Array(elements) => elements.len(),
             _ => {
-                self.heap.temp_release(mark);
+                self.runtime.heap.temp_release(mark);
                 return Err(self.emit_type_error("object is not indexable".to_string(), info()));
             }
         };
 
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         if offset < 0 || offset as usize >= length {
             return Err(self.emit_index_error(offset, length, info()));
         }
@@ -482,9 +439,9 @@ impl<'l> Executor<'l> {
     }
 
     fn visit_unary(&mut self, op: &UniaryOp) -> CellView<Object> {
-        let mark = self.heap.temp_mark();
+        let mark = self.runtime.heap.temp_mark();
         let operand = self.visit_expr(&op.right);
-        self.heap.temp_push(operand);
+        self.runtime.heap.temp_push(operand);
 
         // Fold to an owned value first: the heap borrow has to end before an
         // error can be allocated.
@@ -505,20 +462,21 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
     fn visit_func_expr(&mut self, func: &FunctionExpr) -> CellView<Object> {
         let f_obj = self
+            .runtime
             .heap
             .allocate_cell(Object::Function(FunctionType::Expr(func.clone())));
         match func.name.as_ref() {
             Node::Ident(id) => {
-                if let Some(prev) = self.global_env.add(&id.value, f_obj.clone()) {
-                    self.heap.remove_root(&prev);
+                if let Some(prev) = self.runtime.globals.add(&id.value, f_obj.clone()) {
+                    self.runtime.heap.remove_root(&prev);
                 }
-                self.heap.add_root(f_obj.clone());
+                self.runtime.heap.add_root(f_obj.clone());
             }
             _ => (),
         }
@@ -526,7 +484,7 @@ impl<'l> Executor<'l> {
     }
 
     fn visit_func_anon(&mut self, func: &Function) -> CellView<Object> {
-        self.heap
+        self.runtime.heap
             .allocate_cell(Object::Function(FunctionType::Decl(func.clone())))
     }
 
@@ -544,9 +502,9 @@ impl<'l> Executor<'l> {
             }
         };
 
-        let mark = self.heap.temp_mark();
+        let mark = self.runtime.heap.temp_mark();
         let callee_cell = self.visit_expr(callee_node);
-        self.heap.temp_push(callee_cell);
+        self.runtime.heap.temp_push(callee_cell);
 
         // Decide before constructing an error, so the heap borrow is over by then.
         let callee = self.read(callee_cell);
@@ -568,7 +526,7 @@ impl<'l> Executor<'l> {
         let mut arg_cells: Vec<CellView<Object>> = Vec::with_capacity(func_call.args.len());
         for arg in &func_call.args {
             let cell = self.visit_expr(arg);
-            self.heap.temp_push(cell);
+            self.runtime.heap.temp_push(cell);
             arg_cells.push(cell);
         }
 
@@ -580,7 +538,7 @@ impl<'l> Executor<'l> {
                 token: func_call.token.clone(),
             };
             let outcome = if builtin.arity.accepts(arg_cells.len()) {
-                (builtin.call)(&mut self.heap, &arg_cells)
+                (builtin.call)(&mut self.runtime.heap, &arg_cells)
             } else {
                 Err(format!(
                     "{} expects {} argument(s), got {}",
@@ -593,15 +551,15 @@ impl<'l> Executor<'l> {
                 Ok(object) => self.value(object),
                 Err(message) => self.emit_type_error(message, at),
             };
-            self.heap.temp_push(result);
-            self.heap.temp_release(mark);
+            self.runtime.heap.temp_push(result);
+            self.runtime.heap.temp_release(mark);
             return result;
         }
 
         // Push scope AFTER evaluating arguments (arguments are evaluated in caller's scope)
-        self.global_env.push_scope();
-        if self.global_env.is_scoping_limit_exceded() {
-            self.global_env.pop_scope();
+        self.runtime.globals.push_scope();
+        if self.runtime.globals.is_scoping_limit_exceded() {
+            self.runtime.globals.pop_scope();
             return self.emit_recursion_limit_reached_error(NodeParseInfo {
                 lineno: func_call.lineno,
                 token: func_call.token.clone(),
@@ -636,7 +594,7 @@ impl<'l> Executor<'l> {
                 };
 
                 if param_names.len() != arg_cells.len() {
-                    self.global_env.pop_scope();
+                    self.runtime.globals.pop_scope();
                     return self.emit_type_error(
                         "arity mismatch".to_string(),
                         NodeParseInfo {
@@ -647,30 +605,30 @@ impl<'l> Executor<'l> {
                 }
 
                 for (i, name) in param_names.iter().enumerate() {
-                    if let Some(prev) = self.global_env.add(name, arg_cells[i].clone()) {
-                        self.heap.remove_root(&prev);
+                    if let Some(prev) = self.runtime.globals.add(name, arg_cells[i].clone()) {
+                        self.runtime.heap.remove_root(&prev);
                     }
-                    self.heap.add_root(arg_cells[i].clone());
+                    self.runtime.heap.add_root(arg_cells[i].clone());
                 }
 
                 let result = self.visit_expr(&body_owned);
-                self.heap.temp_push(result);
-                let removed = self.global_env.pop_scope();
+                self.runtime.heap.temp_push(result);
+                let removed = self.runtime.globals.pop_scope();
                 for cell in removed {
-                    self.heap.remove_root(&cell);
+                    self.runtime.heap.remove_root(&cell);
                 }
                 let value = match self.read(result) {
                     Object::Return(ret) => *ret,
                     _ => result,
                 };
-                self.heap.temp_push(value);
-                self.heap.temp_release(mark);
+                self.runtime.heap.temp_push(value);
+                self.runtime.heap.temp_release(mark);
                 value
             }
             _ => {
-                let removed = self.global_env.pop_scope();
+                let removed = self.runtime.globals.pop_scope();
                 for cell in removed {
-                    self.heap.remove_root(&cell);
+                    self.runtime.heap.remove_root(&cell);
                 }
                 return self.emit_type_error(
                     "object is not callable".to_string(),
@@ -769,7 +727,7 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
@@ -793,7 +751,7 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
@@ -817,7 +775,7 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
@@ -841,7 +799,7 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
@@ -858,7 +816,7 @@ impl<'l> Executor<'l> {
             (Object::Null, Object::Null) => true,
             _ => false,
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         self.boolean(res)
     }
 
@@ -875,7 +833,7 @@ impl<'l> Executor<'l> {
             (Object::Null, Object::Null) => false,
             _ => true,
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         self.boolean(res)
     }
 
@@ -900,7 +858,7 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
@@ -924,7 +882,7 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
@@ -948,7 +906,7 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
@@ -981,7 +939,7 @@ impl<'l> Executor<'l> {
                 },
             ),
         };
-        self.heap.temp_release(mark);
+        self.runtime.heap.temp_release(mark);
         out
     }
 
@@ -1007,12 +965,12 @@ impl<'l> Executor<'l> {
             parse_info.lineno
         );
         let offset = parse_info.token.offset;
-        self.heap.allocate_cell(Object::Error(ErrorObj {
+        self.runtime.heap.allocate_cell(Object::Error(ErrorObj {
             type_error: None,
             run_time_error: Some(RuntimeError::RecursionLimitReached(ErrInfo {
                 err_type: ErrType::RuntimeError("Recursion limit reached".to_owned()),
                 msg,
-                src: self.parser.source(),
+                src: self.source,
                 span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
         }))
@@ -1020,12 +978,12 @@ impl<'l> Executor<'l> {
 
     /// Builds an error value from a span directly, for nodes that carry no token.
     fn emit_runtime_error(&mut self, msg: String, span: SourceSpan) -> CellView<Object> {
-        self.heap.allocate_cell(Object::Error(ErrorObj {
+        self.runtime.heap.allocate_cell(Object::Error(ErrorObj {
             type_error: None,
             run_time_error: Some(RuntimeError::InvalidFunctionCall(ErrInfo {
                 err_type: ErrType::RuntimeError(msg.clone()),
                 msg,
-                src: self.parser.source(),
+                src: self.source,
                 span,
             })),
         }))
@@ -1062,11 +1020,11 @@ impl<'l> Executor<'l> {
             ),
         };
         let offset = parse_info.token.offset;
-        self.heap.allocate_cell(Object::Error(ErrorObj {
+        self.runtime.heap.allocate_cell(Object::Error(ErrorObj {
             type_error: Some(TypeError::TypeMismatch(ErrInfo {
                 err_type,
                 msg: error_msg,
-                src: self.parser.source(),
+                src: self.source,
                 span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
             run_time_error: None,
@@ -1079,12 +1037,12 @@ impl<'l> Executor<'l> {
             parse_info.lineno
         );
         let offset = parse_info.token.offset;
-        self.heap.allocate_cell(Object::Error(ErrorObj {
+        self.runtime.heap.allocate_cell(Object::Error(ErrorObj {
             type_error: None,
             run_time_error: Some(RuntimeError::DivisionByZero(ErrInfo {
                 err_type: ErrType::RuntimeError("Division by zero".to_owned()),
                 msg,
-                src: self.parser.source(),
+                src: self.source,
                 span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
         }))
@@ -1092,13 +1050,13 @@ impl<'l> Executor<'l> {
 
     fn emit_undefined_error(&mut self, msg: String, parse_info: NodeParseInfo) -> CellView<Object> {
         let offset = parse_info.token.offset;
-        self.heap.allocate_cell(Object::Error(ErrorObj {
+        self.runtime.heap.allocate_cell(Object::Error(ErrorObj {
             run_time_error: Some(RuntimeError::UndefinedIdentifier(ErrInfo {
                 err_type: ErrType::RuntimeError(
                     "this identifier may have not been declared".to_string(),
                 ),
                 msg,
-                src: self.parser.source(),
+                src: self.source,
                 span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
             type_error: None,
@@ -1111,11 +1069,11 @@ impl<'l> Executor<'l> {
         parse_info: NodeParseInfo,
     ) -> CellView<Object> {
         let offset = parse_info.token.offset;
-        self.heap.allocate_cell(Object::Error(ErrorObj {
+        self.runtime.heap.allocate_cell(Object::Error(ErrorObj {
             run_time_error: Some(RuntimeError::InvalidFunctionCall(ErrInfo {
                 err_type: ErrType::RuntimeError("Invalid function call".to_string()),
                 msg,
-                src: self.parser.source(),
+                src: self.source,
                 span: (offset as usize, parse_info.token.lexeme.len() as usize).into(),
             })),
             type_error: None,
@@ -1133,7 +1091,7 @@ impl<'l> Executor<'l> {
                 }
             }
             Object::Error(obj) => {
-                obj.visit();
+                obj.visit(&self.runtime.sources);
                 Err("expected a number type")
             }
             _ => Err("expected a number type"),

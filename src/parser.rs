@@ -9,9 +9,11 @@ use thiserror::Error;
 
 use crate::ast::*;
 use crate::lexer::{Lexer, TType, Token};
+use crate::source::{SourceId, SourceMap};
 
 pub struct Parser<'a> {
     lexer: &'a mut Lexer,
+    source: SourceId,
     current_token: Option<Token>,
     peek_token: Option<Token>,
     errors: Vec<Error>,
@@ -30,29 +32,28 @@ pub enum ParseError {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(lexer: &'a mut Lexer) -> Self {
+    pub fn new(lexer: &'a mut Lexer, source: SourceId) -> Self {
         Parser {
             lexer,
+            source,
             current_token: None,
             peek_token: None,
             errors: vec![],
         }
     }
 
-    pub fn source(&self) -> &'static str {
-        self.lexer.source()
+    pub fn source(&self) -> SourceId {
+        self.source
     }
 
     pub fn has_errors(&self) -> bool {
         self.errors.is_empty() == false
     }
 
-    pub fn show_errors(&self) {
+    pub fn show_errors(&self, sources: &SourceMap) {
         for err in self.errors.clone().into_iter() {
-            eprint!(
-                "{:?}",
-                miette::Report::new(err.clone()).with_source_code(err.src)
-            );
+            let text = sources.text(err.src).to_string();
+            eprint!("{:?}", miette::Report::new(err).with_source_code(text));
         }
     }
 

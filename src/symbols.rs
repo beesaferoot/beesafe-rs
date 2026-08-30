@@ -7,6 +7,7 @@ use crate::{
     allocator::{Allocator, CellView, Heap, Markable},
     ast::{Function as Func, FunctionExpr as FuncExpr},
     environment::Environment,
+    source::{SourceId, SourceMap},
 };
 use thiserror::Error;
 
@@ -56,7 +57,7 @@ pub enum TypeError {
 
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub struct ErrInfo {
-    pub src: &'static str,
+    pub src: SourceId,
     pub msg: String,
     #[label("{err_type}")]
     pub span: SourceSpan,
@@ -99,43 +100,40 @@ pub struct BoolObj {
 }
 
 impl ErrorObj {
-    pub fn visit<'e>(&self) {
-        match self.type_error.clone() {
-            Some(err) => match err {
-                TypeError::TypeMismatch(info) => eprint!(
-                    "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src)
-                ),
-                TypeError::PlaceHolder(info) => eprint!(
-                    "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src)
-                ),
-            },
-            None => (),
+    pub fn visit(&self, sources: &SourceMap) {
+        if let Some(info) = self.type_error.as_ref().map(TypeError::info) {
+            render(info, sources);
         }
+        if let Some(info) = self.run_time_error.as_ref().map(RuntimeError::info) {
+            render(info, sources);
+        }
+    }
+}
 
-        match self.run_time_error.clone() {
-            Some(err) => match err {
-                RuntimeError::DivisionByZero(info) => eprint!(
-                    "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src)
-                ),
-                RuntimeError::RecursionLimitReached(info) => eprint!(
-                    "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src)
-                ),
-                RuntimeError::InvalidFunctionCall(info) => eprint!(
-                    "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src)
-                ),
-                RuntimeError::UndefinedIdentifier(info) => eprint!(
-                    "{:?}",
-                    miette::Report::new(info.clone()).with_source_code(info.src)
-                ),
-            },
-            None => (),
+fn render(info: &ErrInfo, sources: &SourceMap) {
+    let text = sources.text(info.src).to_string();
+    eprint!(
+        "{:?}",
+        miette::Report::new(info.clone()).with_source_code(text)
+    );
+}
+
+impl TypeError {
+    fn info(&self) -> &ErrInfo {
+        match self {
+            TypeError::TypeMismatch(info) | TypeError::PlaceHolder(info) => info,
         }
-        return;
+    }
+}
+
+impl RuntimeError {
+    fn info(&self) -> &ErrInfo {
+        match self {
+            RuntimeError::DivisionByZero(info)
+            | RuntimeError::RecursionLimitReached(info)
+            | RuntimeError::InvalidFunctionCall(info)
+            | RuntimeError::UndefinedIdentifier(info) => info,
+        }
     }
 }
 

@@ -1,4 +1,5 @@
-use beesafe::environment;
+use beesafe::runtime::Runtime;
+use beesafe::source::SourceMap;
 use beesafe::executor;
 use beesafe::lexer;
 use beesafe::parser;
@@ -7,12 +8,14 @@ use beesafe::symbols::Object;
 #[test]
 fn test_add_expression_eval() {
     let input_string = "1 + 3";
+    let mut sources = SourceMap::new();
+    let source = sources.add(input_string.to_string());
     let mut lexer = lexer::Lexer::new(input_string);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
-    let mut env = environment::Environment::new();
+    let mut runtime = Runtime::new();
 
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut exec = executor::Executor::new(&mut runtime, source);
 
     let exec_first = exec.visit_expr(&program.statements[0]);
     let result = match exec.read_view(exec_first).unwrap() {
@@ -27,13 +30,15 @@ fn test_for_over_range_exec() {
     let input = r#"
         for i in (1..3) { }
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
     match exec.read_view(results[0]).unwrap() {
@@ -47,13 +52,15 @@ fn test_for_over_array_exec() {
     let input = r#"
         for i in [1, 2] { }
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
     match exec.read_view(results[0]).unwrap() {
@@ -67,13 +74,15 @@ fn test_for_over_string_exec() {
     let input = r#"
         for ch in "ab" { }
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
     match exec.read_view(results[0]).unwrap() {
@@ -87,13 +96,15 @@ fn test_for_non_iterable_error() {
     let input = r#"
         for i in 1 { }
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     assert_eq!(results.len(), 1);
     match exec.read_view(results[0]).unwrap() {
@@ -112,13 +123,15 @@ fn test_comparisons_exec() {
         4 == 4
         5 != 6
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     let bools: Vec<bool> = results
         .into_iter()
@@ -144,13 +157,15 @@ fn test_declare_init_ident_and_if_while() {
         while (y > 0) { init y = y - 1 }
         y
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 0),
@@ -166,13 +181,15 @@ fn test_function_define_and_call() {
         }
         add(2, 3)
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 5),
@@ -188,13 +205,15 @@ fn test_function_expression_and_call() {
         }()
         a
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::String(s) => assert_eq!(*s, "flower"),
@@ -215,13 +234,15 @@ fn test_else_if_chaining_exec_if_branch() {
         }
         x
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 1),
@@ -242,13 +263,15 @@ fn test_else_if_chaining_exec_else_if_branch() {
         }
         x
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 2),
@@ -269,13 +292,15 @@ fn test_else_if_chaining_exec_else_branch() {
         }
         x
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Number(n) => assert_eq!(*n, 3),
@@ -288,13 +313,15 @@ fn test_invalid_function_call() {
     let input = r#"
         printl("hello")
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Error(_) => (),
@@ -316,13 +343,15 @@ fn test_recursive_function_call(){
         }
         print("fib(1): ", fib(3))
     "#;
+    let mut sources = SourceMap::new();
+    let source = sources.add(input.to_string());
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, source);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
 
-    let mut env = environment::Environment::new();
-    let mut exec = executor::Executor::new(&mut env, &parser);
+    let mut runtime = Runtime::new();
+    let mut exec = executor::Executor::new(&mut runtime, source);
     let results = exec.visit_program(&program);
     match exec.read_view(*results.last().unwrap()).unwrap() {
         Object::Null => (),

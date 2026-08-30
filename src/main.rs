@@ -1,4 +1,5 @@
 use beesafe::interpreter::Interpreter;
+use beesafe::source::SourceMap;
 use beesafe::symbols::Object;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
@@ -49,9 +50,9 @@ fn main() {
             match interp.run_file(path) {
                 Ok(results) => {
                     if debug {
-                        print_results(&results);
+                        print_results(&results, interp.sources());
                     } else {
-                        print_errors(&results);
+                        print_errors(&results, interp.sources());
                     }
                 }
                 Err(e) => {
@@ -75,9 +76,9 @@ fn main() {
     match interp.run_file(path) {
         Ok(results) => {
             if debug {
-                print_results(&results);
+                print_results(&results, interp.sources());
             } else {
-                print_errors(&results);
+                print_errors(&results, interp.sources());
             }
         }
         Err(e) => eprintln!("{}", e),
@@ -101,12 +102,11 @@ fn repl(existing: Option<Interpreter>, debug: bool) {
                     continue;
                 }
 
-                let line_static: &'static str = Box::leak(buffer.clone().into_boxed_str());
-                let results = interp.run_str(line_static);
+                let results = interp.run_str(&buffer);
                 if debug {
-                    print_results(&results);
+                    print_results(&results, interp.sources());
                 } else {
-                    print_errors(&results);
+                    print_errors(&results, interp.sources());
                 }
                 buffer.clear();
             }
@@ -124,19 +124,19 @@ fn repl(existing: Option<Interpreter>, debug: bool) {
     }
 }
 
-fn print_results(results: &Vec<Object>) {
+fn print_results(results: &Vec<Object>, sources: &SourceMap) {
     for obj in results {
         match obj {
-            Object::Error(err) => err.visit(),
+            Object::Error(err) => err.visit(sources),
             _ => println!("{:?}", obj),
         }
     }
 }
 
-fn print_errors(results: &Vec<Object>) {
+fn print_errors(results: &Vec<Object>, sources: &SourceMap) {
     for obj in results {
         if let Object::Error(err) = obj {
-            err.visit();
+            err.visit(sources);
         }
     }
 }

@@ -6,4 +6,6 @@ pub mod executor;
 pub mod interpreter;
 pub mod lexer;
 pub mod parser;
+pub mod runtime;
+pub mod source;
 pub mod symbols;

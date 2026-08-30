@@ -1,3 +1,4 @@
+use beesafe::source::{SourceId, SourceMap};
 use beesafe::ast::Node;
 use beesafe::ast::NodeType;
 use beesafe::lexer;
@@ -13,7 +14,7 @@ fn test_expression() {
         -9
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 5);
 
@@ -42,7 +43,7 @@ fn test_for_int_range_stmt() {
     for i in (1..4) {}
 "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);
 }
@@ -53,7 +54,7 @@ fn test_error() {
     3 // 4
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);
     assert_eq!(parser.has_errors(), false);
@@ -72,7 +73,7 @@ fn test_function_calls() {
         entry("headers")
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 6);
     assert!(!parser.has_errors());
@@ -91,7 +92,7 @@ fn test_function_statements() {
         }
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 2);
     assert!(!parser.has_errors());
@@ -119,7 +120,7 @@ fn test_comments_in_complex_code() {
         compute(1, 2) // call with comments
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert!(!parser.has_errors());
     assert_eq!(program.statements.len(), 2);
@@ -131,7 +132,7 @@ fn test_function_literals() {
         init fn = define (){}
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);
     assert!(!parser.has_errors());
@@ -151,7 +152,7 @@ fn test_return_statements() {
         return (20 >= 100)
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 9);
     assert!(!parser.has_errors());
@@ -173,7 +174,7 @@ fn test_if_statements() {
         }
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 5);
     assert!(!parser.has_errors());
@@ -190,7 +191,7 @@ fn test_relational_and_equality_expressions() {
         1 != 2
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 6);
 
@@ -218,7 +219,7 @@ fn test_comparison_precedence() {
         10 - 5 <= 4
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 3);
 
@@ -238,7 +239,7 @@ fn test_declare_statements() {
         declare x, y, z
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 3);
     assert!(!parser.has_errors());
@@ -255,7 +256,7 @@ fn test_complex_expressions() {
         (9) * (8-9)
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 6);
     assert!(!parser.has_errors());
@@ -273,10 +274,10 @@ fn test_complex_statements() {
         }
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 4);
-    parser.show_errors();
+    parser.show_errors(&SourceMap::new());
     assert!(!parser.has_errors());
 }
 
@@ -297,7 +298,7 @@ fn test_syntax_errors() {
         (
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert!(parser.has_errors());
     assert_eq!(program.statements.len(), 0);
@@ -312,7 +313,7 @@ fn test_incomplete_blocks() {
             }
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);
     assert!(parser.has_errors());
@@ -329,10 +330,10 @@ fn test_function_calls_in_expressions() {
         while (has_next()) { }
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 6);
-    parser.show_errors();
+    parser.show_errors(&SourceMap::new());
     assert!(!parser.has_errors());
 }
 
@@ -345,7 +346,7 @@ fn test_not_operator() {
         !(1 < 2)
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 4);
     assert!(!parser.has_errors());
@@ -359,7 +360,7 @@ fn test_iterable_protocols() {
         for i in [1, 2, 3] { }
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
 
     assert_eq!(program.statements.len(), 3);
@@ -381,7 +382,7 @@ fn test_array_literals() {
         []
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 2);
 
@@ -404,7 +405,7 @@ fn test_assignment_parsing() {
         (x = 7) == 7
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 4);
     assert!(!parser.has_errors());
@@ -420,7 +421,7 @@ fn test_assignment_precedence_vs_comparison_and_call() {
         f(1 + (a = 3))
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 5);
     assert!(!parser.has_errors());
@@ -438,7 +439,7 @@ fn test_else_if_chaining() {
         }
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);
     assert!(!parser.has_errors());
@@ -453,7 +454,7 @@ fn test_index_expressions_and_assignment() {
         a[1] = 4
     "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 4);
     assert!(!parser.has_errors());
@@ -465,7 +466,7 @@ fn test_expression_with_function_call() {
             fib(n-1) + fib(n-2)
         "#;
     let mut lexer = lexer::Lexer::new(input);
-    let mut parser = parser::Parser::new(&mut lexer);
+    let mut parser = parser::Parser::new(&mut lexer, SourceId::PLACEHOLDER);
     let program = parser.parse_program();
     assert_eq!(program.statements.len(), 1);
     assert!(!parser.has_errors());
