@@ -79,7 +79,6 @@ fn len(heap: &mut Heap<Object>, args: &[CellView<Object>]) -> Result<Object, Str
         | Object::Bool(_)
         | Object::Error(_)
         | Object::Number(_)
-        | Object::Float(_)
         | Object::Iterator(_)
         | Object::Function(_)
         | Object::Builtin(_)

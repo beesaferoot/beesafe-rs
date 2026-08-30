@@ -18,7 +18,6 @@ pub enum Object {
     Error(ErrorObj),
     Number(i32),
     String(String),
-    Float(f32),
     Array(Vec<CellView<Object>>),
     Range(RangeObj),
     Iterator(IteratorObj),
@@ -231,7 +230,6 @@ fn display_at(heap: &Heap<Object>, view: CellView<Object>, depth: usize) -> Opti
         Object::Null => Some("null".to_string()),
         Object::Bool(value) => Some(format!("{}", value)),
         Object::Number(value) => Some(format!("{}", value)),
-        Object::Float(value) => Some(format!("{}", value)),
         Object::String(text) => Some(text.clone()),
         Object::Range(range) => Some(format!("{}..{}", range.start, range.end)),
         Object::Iterator(_) => Some("<iterator>".to_string()),
@@ -279,7 +277,6 @@ impl Markable<Object> for Object {
             | Object::Error(_)
             | Object::Number(_)
             | Object::String(_)
-            | Object::Float(_)
             | Object::Range(_)
             | Object::Function(_)
             | Object::Builtin(_) => Vec::new(),
