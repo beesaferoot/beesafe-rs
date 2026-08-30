@@ -67,6 +67,12 @@ impl<'l> Executor<'l> {
         }
     }
 
+    /// Renders a value while the runtime is alive. `None` for an error, which is
+    /// reported as a diagnostic instead.
+    pub fn render(&self, view: CellView<Object>) -> Option<String> {
+        display(&self.runtime.heap, view)
+    }
+
     pub fn read_view(&self, view: CellView<Object>) -> Option<&Object> {
         self.runtime.heap.read_cell(view)
     }

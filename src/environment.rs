@@ -44,6 +44,19 @@ impl Environment {
         None
     }
 
+    /// Every name visible from the innermost scope outward, without duplicates.
+    pub fn names(&self) -> Vec<&str> {
+        let mut seen = Vec::new();
+        for scope in self.scopes.iter().rev() {
+            for name in scope.keys() {
+                if !seen.contains(&name.as_str()) {
+                    seen.push(name.as_str());
+                }
+            }
+        }
+        seen
+    }
+
     pub fn push_scope(&mut self) {
         self.depth += 1;
         self.scopes.push(HashMap::new());

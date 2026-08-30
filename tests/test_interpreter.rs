@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[test]
 fn test_run_str_basic_math() {
     let mut interp = Interpreter::new();
-    let out = interp.run_str("1 + 2\n3 * 4");
+    let out = interp.run_str("1 + 2\n3 * 4").values;
     let nums: Vec<i32> = out
         .into_iter()
         .map(|o| match o {
@@ -43,24 +43,54 @@ fn bindings_survive_across_runs() {
 
     // A view is only meaningful to the heap that issued it, so each of these
     // reads a value the previous run allocated.
-    match interp.run_str("s\n").last().unwrap() {
+    match interp.run_str("s\n").values.last().unwrap() {
         Object::String(text) => assert_eq!(text, "hello"),
         other => panic!("expected the string binding, got {:?}", other),
     }
-    match interp.run_str("len(a)\n").last().unwrap() {
+    match interp.run_str("len(a)\n").values.last().unwrap() {
         Object::Number(n) => assert_eq!(*n, 3),
         other => panic!("expected a length, got {:?}", other),
     }
-    match interp.run_str("a[1]\n").last().unwrap() {
+    match interp.run_str("a[1]\n").values.last().unwrap() {
         Object::Number(n) => assert_eq!(*n, 2),
         other => panic!("expected an element, got {:?}", other),
     }
-    match interp.run_str("dbl(21)\n").last().unwrap() {
+    match interp.run_str("dbl(21)\n").values.last().unwrap() {
         Object::Number(n) => assert_eq!(*n, 42),
         other => panic!("expected 42, got {:?}", other),
     }
-    match interp.run_str("big\n").last().unwrap() {
+    match interp.run_str("big\n").values.last().unwrap() {
         Object::Number(n) => assert_eq!(*n, 5000),
         other => panic!("expected 5000, got {:?}", other),
     }
+}
+
+#[test]
+fn only_a_trailing_expression_echoes() {
+    let mut interp = Interpreter::new();
+
+    assert_eq!(interp.run_str("1 + 1\n").echo.as_deref(), Some("2"));
+    assert_eq!(interp.run_str("init x = 5\n").echo, None);
+    assert_eq!(interp.run_str("x\n").echo.as_deref(), Some("5"));
+    assert_eq!(interp.run_str("define f() { return 1 }\n").echo, None);
+    assert_eq!(interp.run_str("f()\n").echo.as_deref(), Some("1"));
+    assert_eq!(interp.run_str("init a = [1, 2, 3]\n").echo, None);
+    assert_eq!(interp.run_str("a\n").echo.as_deref(), Some("[1, 2, 3]"));
+
+    // print and assignment both evaluate to null, which never echoes.
+    assert_eq!(interp.run_str("print(x)\n").echo, None);
+    assert_eq!(interp.run_str("x = 9\n").echo, None);
+}
+
+#[test]
+fn globals_can_be_listed() {
+    let mut interp = Interpreter::new();
+    interp.run_str("init apple = 1\n");
+    interp.run_str("define pear() { return 2 }\n");
+
+    let names = interp.global_names();
+    assert!(names.contains(&"apple".to_string()));
+    assert!(names.contains(&"pear".to_string()));
+    // Builtins are ordinary bindings, so they are listed too.
+    assert!(names.contains(&"len".to_string()));
 }

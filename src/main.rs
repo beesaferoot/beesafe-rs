@@ -102,11 +102,14 @@ fn repl(existing: Option<Interpreter>, debug: bool) {
                     continue;
                 }
 
-                let results = interp.run_str(&buffer);
+                let outcome = interp.run_str(&buffer);
                 if debug {
-                    print_results(&results, interp.sources());
+                    print_results(&outcome.values, interp.sources());
                 } else {
-                    print_errors(&results, interp.sources());
+                    print_errors(&outcome.values, interp.sources());
+                }
+                if let Some(text) = outcome.echo {
+                    println!("{}", text);
                 }
                 buffer.clear();
             }
