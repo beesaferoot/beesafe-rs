@@ -219,15 +219,50 @@ impl IteratorObj {
 
 /// Renders a value for `print`. `None` for an error, which the caller surfaces
 /// as a diagnostic rather than as text.
+/// Nesting deeper than this renders as `[...]`.
+const DISPLAY_DEPTH: usize = 8;
+
 pub fn display(heap: &Heap<Object>, view: CellView<Object>) -> Option<String> {
+    display_at(heap, view, DISPLAY_DEPTH)
+}
+
+fn display_at(heap: &Heap<Object>, view: CellView<Object>, depth: usize) -> Option<String> {
     match heap.read_cell(view)? {
         Object::Null => Some("null".to_string()),
         Object::Bool(value) => Some(format!("{}", value)),
         Object::Number(value) => Some(format!("{}", value)),
+        Object::Float(value) => Some(format!("{}", value)),
         Object::String(text) => Some(text.clone()),
+        Object::Range(range) => Some(format!("{}..{}", range.start, range.end)),
+        Object::Iterator(_) => Some("<iterator>".to_string()),
+        Object::Function(kind) => Some(match kind {
+            FunctionType::Expr(function) => match function_name(&function.name) {
+                Some(name) => format!("<function {}>", name),
+                None => "<function>".to_string(),
+            },
+            FunctionType::Decl(_) => "<function>".to_string(),
+        }),
+        Object::Builtin(builtin) => Some(format!("<builtin {}>", builtin.name)),
+        Object::Array(elements) => {
+            if depth == 0 {
+                return Some("[...]".to_string());
+            }
+            let mut parts = Vec::with_capacity(elements.len());
+            for element in elements {
+                parts.push(display_at(heap, *element, depth - 1)?);
+            }
+            Some(format!("[{}]", parts.join(", ")))
+        }
+        // Errors are reported as diagnostics, never rendered as text.
         Object::Error(_) => None,
-        Object::Return(inner) => display(heap, *inner),
-        other => Some(format!("{:?}", other)),
+        Object::Return(inner) => display_at(heap, *inner, depth),
+    }
+}
+
+fn function_name(node: &crate::ast::Node) -> Option<String> {
+    match node {
+        crate::ast::Node::Ident(id) => Some(id.value.clone()),
+        _ => None,
     }
 }
 

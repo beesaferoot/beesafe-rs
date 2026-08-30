@@ -1,0 +1,21 @@
+print([1, 2, 3])
+print([])
+print([[1, 2], [3]])
+print([1, "two", true, null])
+print(0..3)
+
+define f() { return 1 }
+print(f)
+print(len)
+
+print([[[[[[[[[[1]]]]]]]]]])
+
+// ---
+// [1, 2, 3]
+// []
+// [[1, 2], [3]]
+// [1, two, true, null]
+// 0..3
+// <function f>
+// <builtin len>
+// [[[[[[[[[...]]]]]]]]]
